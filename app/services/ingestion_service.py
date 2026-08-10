@@ -1,20 +1,30 @@
 from typing import List
 from pypdf import PdfReader
 import docx2txt
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 class DocumentIngestionService:
     @staticmethod
     def extract_text_from_file(file_path: str, filename: str) -> str:
         ext = filename.split(".")[-1].lower() if "." in filename else ""
+        logger.info(f"Extracting text from '{filename}' (type: .{ext}, path: {file_path})")
+        
         if ext == "pdf":
             reader = PdfReader(file_path)
             text = "\n".join([page.extract_text() or "" for page in reader.pages])
+            logger.info(f"Extracted {len(text)} chars from {len(reader.pages)} PDF pages")
             return text
         elif ext in ["docx", "doc"]:
-            return docx2txt.process(file_path)
+            text = docx2txt.process(file_path)
+            logger.info(f"Extracted {len(text)} chars from DOCX")
+            return text
         else:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                return f.read()
+                text = f.read()
+            logger.info(f"Read {len(text)} chars from plain text file")
+            return text
 
 class DocumentChunkerService:
     @staticmethod
@@ -84,7 +94,10 @@ class DocumentChunkerService:
         chunk_size: int = 500, 
         overlap: int = 50
     ) -> List[str]:
+        logger.info(f"Chunking document (strategy: {strategy}, chunk_size: {chunk_size}, overlap: {overlap}, text_length: {len(text)})")
         if strategy == "fixed":
-            return DocumentChunkerService.fixed_size_chunking(text, chunk_size, overlap)
+            chunks = DocumentChunkerService.fixed_size_chunking(text, chunk_size, overlap)
         else:
-            return DocumentChunkerService.recursive_character_chunking(text, chunk_size, overlap)
+            chunks = DocumentChunkerService.recursive_character_chunking(text, chunk_size, overlap)
+        logger.info(f"Chunking complete → {len(chunks)} chunks produced")
+        return chunks

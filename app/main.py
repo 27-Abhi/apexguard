@@ -1,8 +1,13 @@
 import os
-from fastapi import FastAPI
+import time
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.api.v1.router import api_router
+from app.services.vector_service import vector_service
+
+logger = get_logger(__name__)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -16,6 +21,45 @@ os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 # Register API routers
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
+
+# ─── Request Lifecycle Middleware ───────────────────────────────────────────
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    method = request.method
+    path = request.url.path
+
+    logger.info(f"⇒ {method} {path}")
+
+    response = await call_next(request)
+
+    elapsed_ms = round((time.time() - start) * 1000, 2)
+    status = response.status_code
+    logger.info(f"⇐ {method} {path} → {status} ({elapsed_ms}ms)")
+
+    return response
+
+
+# ─── Startup Event ──────────────────────────────────────────────────────────
+@app.on_event("startup")
+def startup_banner():
+    logger.info("=" * 60)
+    logger.info("🛡️  ApexGuard RAG Gateway — Phase 1")
+    logger.info("=" * 60)
+    logger.info(f"Project       : {settings.PROJECT_NAME}")
+    logger.info(f"API Prefix    : {settings.API_V1_STR}")
+    logger.info(f"Embedding     : {settings.EMBEDDING_MODEL} (dim={settings.EMBEDDING_DIMENSION})")
+    logger.info(f"Qdrant        : {settings.QDRANT_HOST}:{settings.QDRANT_PORT}")
+    logger.info(f"Qdrant Status : {'✅ Connected (persistent)' if vector_service.is_persistent else '⚠️  In-Memory (non-persistent)'}")
+    logger.info(f"Ollama        : {settings.OLLAMA_BASE_URL} (model: {settings.OLLAMA_MODEL})")
+    logger.info(f"Upload Dir    : {settings.UPLOAD_DIR}")
+    logger.info("=" * 60)
+    logger.info(f"Swagger UI    : http://localhost:8000/docs")
+    logger.info(f"Dashboard     : http://localhost:8000/")
+    logger.info("=" * 60)
+
+
+# ─── Health Check ───────────────────────────────────────────────────────────
 @app.get("/health", tags=["Health"])
 def health_check():
     return {
@@ -24,9 +68,12 @@ def health_check():
         "phase": 1,
         "embedding_model": settings.EMBEDDING_MODEL,
         "qdrant_host": settings.QDRANT_HOST,
+        "qdrant_persistent": vector_service.is_persistent,
         "ollama_url": settings.OLLAMA_BASE_URL
     }
 
+
+# ─── Dashboard UI ──────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def dashboard():
     return """
