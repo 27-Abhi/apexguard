@@ -1,0 +1,23 @@
+# Python / venv
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# Data / Uploads / Vector DB storage
+data/
+qdrant_storage/
+*.db
+*.sqlite
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
