@@ -136,13 +136,20 @@ def dashboard():
             .form-group {
                 margin-bottom: 16px;
             }
+            .form-row {
+                display: flex;
+                gap: 16px;
+            }
+            .form-row .form-group {
+                flex: 1;
+            }
             label {
                 display: block;
                 margin-bottom: 6px;
                 font-weight: 600;
                 font-size: 0.9rem;
             }
-            input[type="text"], textarea, select {
+            input[type="text"], input[type="number"], input[type="file"], textarea, select {
                 width: 100%;
                 padding: 10px;
                 background: #0d1117;
@@ -194,6 +201,28 @@ def dashboard():
                         <label>Select File (PDF, DOCX, TXT)</label>
                         <input type="file" id="fileInput" required />
                     </div>
+
+                    <!-- Added Chunking Options UI -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Chunking Strategy</label>
+                            <select id="strategyInput">
+                                <option value="semantic" selected>Semantic Chunking</option>
+                                <option value="recursive">Recursive Character</option>
+                                <option value="sentence">Sentence Boundary</option>
+                                <option value="fixed">Fixed Size</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Chunk Size</label>
+                            <input type="number" id="chunkSizeInput" value="500" />
+                        </div>
+                        <div class="form-group">
+                            <label>Chunk Overlap</label>
+                            <input type="number" id="chunkOverlapInput" value="50" />
+                        </div>
+                    </div>
+
                     <button type="submit">Ingest File</button>
                 </form>
                 <div id="uploadResult" class="response-box" style="display:none;"></div>
@@ -216,12 +245,19 @@ def dashboard():
             document.getElementById('uploadForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const fileInput = document.getElementById('fileInput');
+                const strategyInput = document.getElementById('strategyInput').value;
+                const chunkSizeInput = document.getElementById('chunkSizeInput').value;
+                const chunkOverlapInput = document.getElementById('chunkOverlapInput').value;
+
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
+                formData.append('chunk_strategy', strategyInput);
+                formData.append('chunk_size', chunkSizeInput);
+                formData.append('chunk_overlap', chunkOverlapInput);
 
                 const resBox = document.getElementById('uploadResult');
                 resBox.style.display = 'block';
-                resBox.innerText = 'Ingesting and embedding...';
+                resBox.innerText = `Ingesting with [${strategyInput}] chunking...`;
 
                 try {
                     const res = await fetch('/api/v1/ingest/file', {
