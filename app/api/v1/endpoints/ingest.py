@@ -4,7 +4,11 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.schemas.ingest import TextIngestRequest, IngestResponse
-from app.services.ingestion_service import DocumentIngestionService, DocumentChunkerService
+from app.services.ingestion_service import (
+    DocumentIngestionService, 
+    DocumentChunkerService, 
+    ChunkingStrategy
+)
 from app.services.embedding_service import embedding_service
 from app.services.vector_service import vector_service
 
@@ -15,7 +19,7 @@ router = APIRouter(prefix="/ingest", tags=["Ingestion"])
 @router.post("/file", response_model=IngestResponse)
 async def ingest_file(
     file: UploadFile = File(...),
-    chunk_strategy: str = Form("recursive"),
+    chunk_strategy: ChunkingStrategy = Form(ChunkingStrategy.SEMANTIC),
     chunk_size: int = Form(500),
     chunk_overlap: int = Form(50)
 ):
@@ -40,7 +44,8 @@ async def ingest_file(
         text=extracted_text, 
         strategy=chunk_strategy, 
         chunk_size=chunk_size, 
-        overlap=chunk_overlap
+        overlap=chunk_overlap,
+        embedding_fn=embedding_service.embed_texts  # Passed to support semantic chunking
     )
 
     embeddings = embedding_service.embed_texts(chunks)
@@ -48,7 +53,7 @@ async def ingest_file(
         {
             "filename": file.filename,
             "chunk_index": idx,
-            "chunk_strategy": chunk_strategy,
+            "chunk_strategy": chunk_strategy.value if isinstance(chunk_strategy, ChunkingStrategy) else chunk_strategy,
             "chunk_size": chunk_size,
             "chunk_overlap": chunk_overlap,
             "total_chunks": len(chunks)
@@ -84,7 +89,8 @@ def ingest_raw_text(payload: TextIngestRequest):
         text=payload.content,
         strategy=payload.chunk_strategy,
         chunk_size=payload.chunk_size,
-        overlap=payload.chunk_overlap
+        overlap=payload.chunk_overlap,
+        embedding_fn=embedding_service.embed_texts
     )
 
     embeddings = embedding_service.embed_texts(chunks)
