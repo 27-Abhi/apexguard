@@ -17,6 +17,15 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
+    def delete_documents(
+        self,
+        point_ids: Optional[List[str]] = None,
+        metadata_filter: Optional[Dict[str, Any]] = None,
+        collection_name: str = ""
+    ) -> bool:
+        pass
+
+    @abstractmethod
     def search(
         self, 
         query_vector: List[float], 

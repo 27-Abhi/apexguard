@@ -83,6 +83,49 @@ class QdrantVectorService(BaseVectorStore):
             logger.warning("No points to insert — empty chunks/embeddings")
         return point_ids
 
+    def delete_documents(
+        self,
+        point_ids: Optional[List[str]] = None,
+        metadata_filter: Optional[Dict[str, Any]] = None,
+        collection_name: str = settings.QDRANT_COLLECTION_NAME
+    ) -> bool:
+        self.ensure_collection(collection_name)
+
+        delete_filter = None
+        if metadata_filter:
+            must_conditions = []
+            for key, val in metadata_filter.items():
+                must_conditions.append(
+                    rest_models.FieldCondition(
+                        key=key,
+                        match=rest_models.MatchValue(value=val)
+                    )
+                )
+            delete_filter = rest_models.Filter(must=must_conditions)
+
+        if point_ids:
+            logger.info(f"Deleting {len(point_ids)} points from '{collection_name}'")
+            point_selector = rest_models.PointIdsList(points=point_ids)
+            self.client.delete(
+                collection_name=collection_name,
+                points_selector=point_selector,
+                wait=True
+            )
+            return True
+
+        if delete_filter:
+            logger.info(f"Deleting documents from '{collection_name}' by metadata filter {metadata_filter}")
+            point_selector = rest_models.FilterSelector(filter=delete_filter)
+            self.client.delete(
+                collection_name=collection_name,
+                points_selector=point_selector,
+                wait=True
+            )
+            return True
+
+        logger.warning("Delete request ignored: no point_ids or metadata_filter provided")
+        return False
+
     def search(
         self, 
         query_vector: List[float], 

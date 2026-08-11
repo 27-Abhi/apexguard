@@ -14,3 +14,17 @@ class IngestResponse(BaseModel):
     chunks_created: int
     point_ids: List[str]
     latency_ms: float
+
+class DeleteRequest(BaseModel):
+    filename: Optional[str] = Field(
+        None,
+        description="If provided, delete indexed chunks matching this filename."
+    )
+    point_ids: Optional[List[str]] = Field(
+        None,
+        description="If provided, delete indexed points by their IDs."
+    )
+
+class DeleteResponse(BaseModel):
+    status: str
+    deleted: bool

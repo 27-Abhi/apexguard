@@ -40,6 +40,9 @@ async def ingest_file(
         logger.error(f"No readable text extracted from '{file.filename}'")
         raise HTTPException(status_code=400, detail="No readable text extracted from file.")
 
+    # Remove any previously indexed chunks for the same file so repeated uploads update rather than duplicate.
+    vector_service.delete_documents(metadata_filter={"filename": file.filename})
+
     chunks = DocumentChunkerService.chunk_document(
         text=extracted_text, 
         strategy=chunk_strategy, 
@@ -85,6 +88,8 @@ def ingest_raw_text(payload: TextIngestRequest):
         raise HTTPException(status_code=400, detail="Content cannot be empty.")
 
     filename = f"text_{payload.title.replace(' ', '_').lower()}.txt"
+    vector_service.delete_documents(metadata_filter={"filename": filename})
+
     chunks = DocumentChunkerService.chunk_document(
         text=payload.content,
         strategy=payload.chunk_strategy,
