@@ -1,5 +1,5 @@
 from typing import List
-from fastembed import TextEmbedding
+from fastembed import SparseTextEmbedding, TextEmbedding
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.interfaces.embeddings import BaseEmbeddingService
@@ -36,3 +36,31 @@ class FastEmbedService(BaseEmbeddingService):
         return embeddings[0] if embeddings else []
 
 embedding_service = FastEmbedService()
+
+
+class FastEmbedSparseService:
+    def __init__(self, model_name: str = settings.SPARSE_EMBEDDING_MODEL):
+        self.model_name = model_name
+        self._model = None
+        logger.info(f"Sparse embedding service initialized (model: {self.model_name})")
+
+    @property
+    def model(self):
+        if self._model is None:
+            logger.info(f"Loading sparse embedding model '{self.model_name}'...")
+            self._model = SparseTextEmbedding(model_name=self.model_name)
+            logger.info(f"Sparse embedding model '{self.model_name}' loaded successfully")
+        return self._model
+
+    def embed_texts(self, texts: List[str]):
+        if not texts:
+            logger.warning("sparse embed_texts called with empty input")
+            return []
+        return list(self.model.embed(texts))
+
+    def embed_query(self, query: str):
+        embeddings = self.embed_texts([query])
+        return embeddings[0] if embeddings else None
+
+
+sparse_embedding_service = FastEmbedSparseService()
