@@ -5,6 +5,7 @@ from qdrant_client.http import models as rest_models
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.interfaces.vector_store import BaseVectorStore
+from app.services.embedding_service import sparse_embedding_service
 
 logger = get_logger(__name__)
 
@@ -44,10 +45,22 @@ class QdrantVectorService(BaseVectorStore):
                 vectors_config=rest_models.VectorParams(
                     size=vector_size,
                     distance=rest_models.Distance.COSINE
-                )
+                ),
+                sparse_vectors_config={
+                    settings.SPARSE_VECTOR_NAME: rest_models.SparseVectorParams()
+                }
             )
         else:
             logger.debug(f"Collection '{collection_name}' already exists")
+
+    def _collection_supports_sparse(self, collection_name: str) -> bool:
+        try:
+            info = self.client.get_collection(collection_name)
+            sparse_vectors = info.config.params.sparse_vectors or {}
+            return settings.SPARSE_VECTOR_NAME in sparse_vectors
+        except Exception as e:
+            logger.warning(f"Could not inspect sparse vector config: {type(e).__name__}: {e}")
+            return False
 
     def insert_documents(
         self, 
@@ -59,6 +72,13 @@ class QdrantVectorService(BaseVectorStore):
         logger.info(f"Inserting {len(chunks)} chunks into collection '{collection_name}'")
         self.ensure_collection(collection_name, len(embeddings[0]) if embeddings else settings.EMBEDDING_DIMENSION)
         
+        supports_sparse = self._collection_supports_sparse(collection_name)
+        if not supports_sparse:
+            logger.warning(
+                f"Collection '{collection_name}' has no sparse vector '{settings.SPARSE_VECTOR_NAME}'. "
+                "Dense inserts will continue; recreate the collection to enable sparse indexing."
+            )
+
         points = []
         point_ids = []
         for i, (chunk, vector, meta) in enumerate(zip(chunks, embeddings, metadatas)):
@@ -68,10 +88,26 @@ class QdrantVectorService(BaseVectorStore):
                 "text": chunk,
                 **meta
             }
+            sparse_vector = None
+            if supports_sparse:
+                try:
+                    sparse_vector = sparse_embedding_service.embed_texts([chunk])[0]
+                except Exception as e:
+                    logger.warning(f"Sparse embedding failed for chunk {i}: {type(e).__name__}: {e}")
+
+            point_vector = vector
+            if sparse_vector is not None:
+                point_vector = {
+                    "": vector,
+                    settings.SPARSE_VECTOR_NAME: rest_models.SparseVector(
+                        indices=sparse_vector.indices.tolist(),
+                        values=sparse_vector.values.tolist()
+                    )
+                }
             points.append(
                 rest_models.PointStruct(
                     id=point_id,
-                    vector=vector,
+                    vector=point_vector,
                     payload=payload
                 )
             )
@@ -168,6 +204,54 @@ class QdrantVectorService(BaseVectorStore):
 
         logger.info(f"Search returned {len(results)} results (top score: {results[0]['score']:.4f})" if results else "Search returned 0 results")
         return results
+
+    def sparse_search(
+        self,
+        query_text: str,
+        top_k: int = 5,
+        metadata_filter: Optional[Dict[str, Any]] = None,
+        collection_name: str = settings.QDRANT_COLLECTION_NAME
+    ) -> List[Dict[str, Any]]:
+        logger.info(f"Sparse searching collection '{collection_name}' (top_k={top_k}, filter={metadata_filter})")
+        self.ensure_collection(collection_name)
+
+        sparse_embedding = sparse_embedding_service.embed_query(query_text)
+        if sparse_embedding is None:
+            return []
+
+        qdrant_filter = None
+        if metadata_filter:
+            must_conditions = [
+                rest_models.FieldCondition(key=key, match=rest_models.MatchValue(value=val))
+                for key, val in metadata_filter.items()
+            ]
+            qdrant_filter = rest_models.Filter(must=must_conditions) if must_conditions else None
+
+        try:
+            search_response = self.client.query_points(
+                collection_name=collection_name,
+                query=rest_models.SparseVector(
+                    indices=sparse_embedding.indices.tolist(),
+                    values=sparse_embedding.values.tolist()
+                ),
+                using=settings.SPARSE_VECTOR_NAME,
+                limit=top_k,
+                query_filter=qdrant_filter,
+                with_payload=True
+            )
+        except Exception as e:
+            logger.warning(f"Sparse search unavailable: {type(e).__name__}: {e}")
+            return []
+
+        return [
+            {
+                "id": str(hit.id),
+                "score": float(hit.score),
+                "text": hit.payload.get("text", ""),
+                "metadata": {k: v for k, v in hit.payload.items() if k != "text"}
+            }
+            for hit in search_response.points
+        ]
 
     def get_all_documents(self, collection_name: str = settings.QDRANT_COLLECTION_NAME) -> List[Dict[str, Any]]:
         logger.info(f"Scrolling all documents from collection '{collection_name}'")
