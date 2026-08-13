@@ -9,7 +9,7 @@ def test_health_check():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "online"
-    assert data["phase"] == 1
+    assert data["phase"] == 2
 
 def test_ingest_text():
     payload = {
@@ -36,3 +36,20 @@ def test_query_rag():
     assert "answer" in data
     assert "sources" in data
     assert isinstance(data["sources"], list)
+
+def test_query_hybrid_rag():
+    query_payload = {
+        "query": "What is ApexGuard?",
+        "top_k": 2,
+        "rrf_candidate_k": 5,
+        "dense_candidate_k": 5,
+        "sparse_candidate_k": 5,
+        "enable_rerank": False
+    }
+    response = client.post("/api/v1/query/hybrid", json=query_payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert "answer" in data
+    assert "sources" in data
+    assert isinstance(data["sources"], list)
+    assert len(data["sources"]) <= 2
