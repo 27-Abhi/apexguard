@@ -98,11 +98,19 @@ def get_logger(name: str) -> logging.Logger:
     if not logger.handlers:
         logger.setLevel(logging.DEBUG)
 
-        handler = logging.StreamHandler(sys.stdout)
+        stream = getattr(sys.stdout, "buffer", sys.stdout)
+        import io
+        if hasattr(sys.stdout, "buffer"):
+            stream = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        else:
+            stream = sys.stdout
+
+        handler = logging.StreamHandler(stream)
         handler.setLevel(logging.DEBUG)
         handler.setFormatter(ApexGuardFormatter())
 
         logger.addHandler(handler)
         logger.propagate = False
+
 
     return logger
