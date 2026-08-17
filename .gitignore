@@ -6,6 +6,7 @@ __pycache__/
 venv/
 ENV/
 env/
+eval_reports/
 
 # Data / Uploads / Vector DB storage
 data/

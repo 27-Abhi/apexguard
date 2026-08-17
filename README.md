@@ -6,7 +6,8 @@ Welcome to **ApexGuard**! This document serves as the complete **Knowledge Trans
 
 ## 📚 1. Knowledge Transfer (KT) Summary: What Has Been Done?
 
-ApexGuard has evolved into a **Phase 2 Hybrid Retrieval & Re-ranking RAG Engine**. Below is a comprehensive breakdown grounded directly in the codebase implementation:
+ApexGuard has evolved into a **Phase 3 Empirical RAG & LLM Evaluation Platform**. Below is a comprehensive breakdown grounded directly in the codebase implementation:
+
 
 ### 1. Multi-Format Ingestion & Chunking Strategies ([`ingestion_service.py`](file:///C:/Users/abhinav.kuppasad/Downloads/apexguard/app/services/ingestion_service.py))
 
@@ -91,6 +92,30 @@ Modifying values in `app/core/config.py` (or setting environment variables) chan
 
 ---
 
+### 5. Automated Empirical Evaluation Harness ([`run_eval.py`](file:///C:/Users/abhinav.kuppasad/Downloads/apexguard/tests/run_eval.py) & [`eval.py`](file:///C:/Users/abhinav.kuppasad/Downloads/apexguard/app/api/v1/endpoints/eval.py))
+
+Phase 3 introduces an automated evaluation harness to quantitatively benchmark retrieval performance and generation accuracy across 3 execution strategies: `dense`, `hybrid`, and `hybrid_reranked`.
+
+#### Evaluated Metrics & Formulas:
+1. **Precision@K:** $\frac{|\text{Retrieved Chunks} \cap \text{Ground Truth Chunks}|}{K}$
+2. **Recall@K:** $\frac{|\text{Retrieved Chunks} \cap \text{Ground Truth Chunks}|}{|\text{Ground Truth Chunks}|}$
+3. **MRR (Mean Reciprocal Rank):** $\frac{1}{|Q|} \sum_{i=1}^{|Q|} \frac{1}{\text{rank}_i}$
+4. **Answer Correctness:** Cosine semantic similarity ($\frac{\vec{u} \cdot \vec{v}}{\|\vec{u}\| \|\vec{v}\|}$) between LLM generated response and ground truth `expected_answer`.
+
+#### Running Evaluation Benchmarks:
+* **Via Python CLI:**
+  ```bash
+  python -m tests.run_eval
+  ```
+* **Via REST API:**
+  ```http
+  POST /api/v1/eval/run?k=3
+  ```
+* **Report Artifacts:** Saved automatically in [`docs/eval_reports/`](file:///C:/Users/abhinav.kuppasad/Downloads/apexguard/docs/eval_reports/) as structured JSON and formatted Markdown tables.
+
+
+---
+
 ## 🏗️ 2. Architectural Pipeline Flow
 
 ```
@@ -154,7 +179,8 @@ apexguard/
 │   │   ├── endpoints/
 │   │   │   ├── ingest.py        # Ingestion API endpoints (Files & Raw Text)
 │   │   │   ├── query.py         # Search & Synthesis API endpoints
-│   │   │   └── documents.py     # Vector document list/view endpoints
+│   │   │   ├── documents.py     # Vector document list/view endpoints
+│   │   │   └── eval.py          # Phase 3 RAG & LLM Evaluation API endpoint
 │   │   └── router.py            # API V1 Router setup
 │   ├── core/
 │   │   ├── config.py            # Pydantic environment configurations & defaults
@@ -168,8 +194,13 @@ apexguard/
 │   │   ├── rag_service.py       # Retrieval, RRF Fusion, and FlashRank re-ranker
 │   │   └── vector_service.py    # Qdrant client connection and payload indexing
 │   └── main.py                  # FastAPI Application, Middleware & Web Dashboard UI
-├── data/                        # File storage for uploads & vector DB storage
-├── tests/                       # Automated pytest test suites
+├── docs/
+│   ├── eval_reports/            # Automated JSON & Markdown evaluation reports
+│   └── PHASE_3_SPEC.md          # Phase 3 Empirical Evaluation Specification
+├── tests/
+│   ├── eval_dataset.json        # Benchmark dataset (questions, expected answers, ground truth)
+│   ├── run_eval.py              # Phase 3 empirical evaluation execution harness
+│   └── test_rag.py              # Automated pytest unit test suite
 ├── Dockerfile                   # Production Docker image blueprint
 ├── docker-compose.yml           # Multi-container orchestration (App + Qdrant)
 ├── requirements.txt             # Python dependencies list
@@ -182,11 +213,12 @@ apexguard/
 
 | Component | Technology | Default Configuration / Model | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Language & Framework** | Python 3.11, FastAPI | `FastAPI v2.0.0` | High-performance async web framework |
+| **Language & Framework** | Python 3.11, FastAPI | `FastAPI v3.0.0` | High-performance async web framework |
 | **Vector DB** | Qdrant | `localhost:6333` (Collection: `apexguard_rag`) | Vector store supporting payload metadata filtering and hybrid retrieval |
 | **Dense Embeddings** | FastEmbed | `BAAI/bge-small-en-v1.5` (384-d) | ONNX local execution embedding pipeline |
 | **Sparse Embeddings** | FastEmbed | `Qdrant/bm25` | Sparse vector term-frequency keyword index |
 | **Re-ranker** | FlashRank | `ms-marco-MiniLM-L-12-v2` | Lightweight neural cross-encoder for score refinement |
+| **Evaluation Harness** | Custom Engine | Precision@K, Recall@K, MRR, Semantic Similarity | Quantitative evaluation of retrieval and generation |
 | **LLM Engine** | Ollama | `qwen3:0.6b` (via `http://localhost:11434`) | Local execution of open-weights LLMs |
 | **Containerization** | Docker, Docker Compose | Multi-container setup | Isolated environment build and execution |
 
@@ -196,11 +228,13 @@ apexguard/
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/health` | Live system diagnostic check (Qdrant status, embedding status, Ollama status) |
+| `GET` | `/health` | Live system diagnostic check (Qdrant status, embedding status, Ollama status, Phase 3 online) |
 | `POST` | `/api/v1/ingest/file` | Ingest PDF, DOCX, or TXT file into Qdrant vector store |
 | `POST` | `/api/v1/ingest/text` | Ingest raw text string directly into Qdrant vector store |
 | `POST` | `/api/v1/query` | Execute RAG pipeline (Retrieval + RRF Fusion + FlashRank + LLM generation) |
 | `GET` | `/api/v1/documents` | Inspect and filter stored vector chunks in Qdrant |
+| `POST` | `/api/v1/eval/run` | Execute Phase 3 automated empirical evaluation harness (`dense` vs `hybrid` vs `hybrid_reranked`) |
+
 
 ---
 
