@@ -11,8 +11,8 @@ logger = get_logger(__name__)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="ApexGuard Phase 2: Hybrid Retrieval and Re-ranking RAG Engine",
-    version="2.0.0"
+    description="ApexGuard Phase 3: Empirical RAG & LLM Evaluation Platform",
+    version="3.0.0"
 )
 
 # Ensure upload directory exists
@@ -44,7 +44,7 @@ async def log_requests(request: Request, call_next):
 @app.on_event("startup")
 def startup_banner():
     logger.info("=" * 60)
-    logger.info("🛡️  ApexGuard RAG Gateway — Phase 2")
+    logger.info("🛡️  ApexGuard RAG Gateway — Phase 3 (Empirical Evaluation)")
     logger.info("=" * 60)
     logger.info(f"Project       : {settings.PROJECT_NAME}")
     logger.info(f"API Prefix    : {settings.API_V1_STR}")
@@ -65,12 +65,13 @@ def health_check():
     return {
         "status": "online",
         "system": "ApexGuard RAG Gateway",
-        "phase": 2,
+        "phase": 3,
         "embedding_model": settings.EMBEDDING_MODEL,
         "qdrant_host": settings.QDRANT_HOST,
         "qdrant_persistent": vector_service.is_persistent,
         "ollama_url": settings.OLLAMA_BASE_URL
     }
+
 
 
 # ─── Dashboard UI ──────────────────────────────────────────────────────────
