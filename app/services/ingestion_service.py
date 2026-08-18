@@ -31,6 +31,11 @@ class DocumentIngestionService:
             text = docx2txt.process(file_path)
             logger.info(f"Extracted {len(text)} chars from DOCX")
             return text
+        elif ext in ["md", "markdown"]:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                text = f.read()
+            logger.info(f"Read {len(text)} chars from Markdown file")
+            return text
         else:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 text = f.read()
