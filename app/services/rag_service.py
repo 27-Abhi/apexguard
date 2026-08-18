@@ -45,6 +45,11 @@ class RAGRetrieverService:
         dense_candidate_k: int = settings.HYBRID_DENSE_CANDIDATE_K,
         sparse_candidate_k: int = settings.HYBRID_SPARSE_CANDIDATE_K
     ) -> List[Dict[str, Any]]:
+        logger.info(
+            f"Hybrid retrieve called (top_k={top_k}, dense_candidate_k={dense_candidate_k}, "
+            f"sparse_candidate_k={sparse_candidate_k}, rrf_candidate_k={rrf_candidate_k}, "
+            f"enable_rerank={enable_rerank})"
+        )
         dense_results = self.retrieve(query, dense_candidate_k, metadata_filter)
         sparse_results = self.vector_store.sparse_search(query, sparse_candidate_k, metadata_filter)
         fused = self._rrf_fuse(dense_results, sparse_results, fusion_weight)[:rrf_candidate_k]
@@ -82,11 +87,7 @@ class RAGRetrieverService:
         if not results:
             return []
         try:
-            try:
-                from flashrank import Ranker, RerankRequest
-            except ImportError:
-                logger.warning("flashrank not installed; returning RRF ranking")
-                return results
+            from flashrank import Ranker, RerankRequest
 
             ranker = Ranker(model_name=settings.RERANK_MODEL)
             passages = [
