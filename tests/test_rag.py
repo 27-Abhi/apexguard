@@ -60,6 +60,9 @@ def test_eval_endpoint():
     data = response.json()
     assert data["status"] == "success"
     assert data["benchmark_questions"] >= 1
+    assert data["questions_evaluated"] <= 5
+    assert data["strategies_evaluated"] == ["dense"]
+    assert data["include_generation"] is False
     assert "results" in data
-    assert len(data["results"]) == 3
+    assert len(data["results"]) == 1
 

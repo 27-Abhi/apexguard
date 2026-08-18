@@ -2,8 +2,9 @@ import os
 import json
 import time
 import asyncio
+import argparse
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.services.rag_service import retriever_service
 from app.services.llm_service import llm_service
 from app.services.vector_service import vector_service
@@ -15,30 +16,55 @@ logger = get_logger(__name__)
 class RAGEvaluator:
     def __init__(self, dataset_path: str = "tests/eval_dataset.json"):
         self.dataset_path = dataset_path
-        with open(dataset_path, "r", encoding="utf-8") as f:
-            self.dataset = json.load(f)
-        logger.info(f"Loaded evaluation dataset with {len(self.dataset)} items from '{dataset_path}'")
+        self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.docs_dir = self._resolve_eval_docs_dir()
+        self.dataset = self._load_dataset()
+        logger.info(f"Loaded evaluation dataset with {len(self.dataset)} items from '{dataset_path}' using docs directory '{self.docs_dir}'")
+
+    def _resolve_eval_docs_dir(self) -> str:
+        uploads_dir = os.path.join(self.project_root, "data", "uploads")
+        if os.path.isdir(uploads_dir):
+            return uploads_dir
+        return uploads_dir
+
+    def _load_dataset(self) -> List[Dict[str, Any]]:
+        with open(self.dataset_path, "r", encoding="utf-8") as f:
+            dataset = json.load(f)
+        if isinstance(dataset, dict) and "questions" in dataset:
+            dataset = dataset["questions"]
+        if not isinstance(dataset, list):
+            raise ValueError(f"Evaluation dataset at '{self.dataset_path}' must be a JSON list of question objects.")
+        return dataset
 
     def setup_eval_documents(self):
         """
-        Indexes real benchmark files from data/uploads into Qdrant vector database.
-        If data/uploads has files, extracts and ingests them using the DocumentIngestionService.
+        Indexes only the benchmark documents in data/uploads. This ensures the evaluation
+        runs against the upload corpus rather than any bundled test docs, and it clears the
+        active collection before re-indexing so repeated calls do not duplicate chunks.
         """
-        uploads_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "uploads")
-        if not os.path.exists(uploads_dir):
-            logger.warning(f"Uploads directory '{uploads_dir}' does not exist.")
+        docs_dir = self.docs_dir
+        if not os.path.exists(docs_dir):
+            logger.warning(f"Evaluation docs directory '{docs_dir}' does not exist.")
             return
 
-        files = [f for f in os.listdir(uploads_dir) if os.path.isfile(os.path.join(uploads_dir, f))]
+        collection_name = "apexguard_rag"
+        try:
+            vector_service.client.get_collection(collection_name)
+            logger.warning(f"Clearing prior vector index '{collection_name}' before re-indexing benchmark docs.")
+            vector_service.client.delete_collection(collection_name)
+        except Exception:
+            pass
+
+        files = [f for f in os.listdir(docs_dir) if os.path.isfile(os.path.join(docs_dir, f))]
         if not files:
-            logger.warning(f"No document files found in '{uploads_dir}' for evaluation indexing.")
+            logger.warning(f"No document files found in '{docs_dir}' for evaluation indexing.")
             return
 
         from app.services.ingestion_service import DocumentIngestionService, DocumentChunkerService, ChunkingStrategy
-        
-        logger.info(f"Indexing {len(files)} real document files from '{uploads_dir}' into Qdrant...")
+
+        logger.info(f"Indexing {len(files)} real document files from '{docs_dir}' into Qdrant...")
         for filename in files:
-            file_path = os.path.join(uploads_dir, filename)
+            file_path = os.path.join(docs_dir, filename)
             try:
                 raw_text = DocumentIngestionService.extract_text_from_file(file_path, filename)
                 if not raw_text.strip():
@@ -54,25 +80,77 @@ class RAGEvaluator:
         logger.info("Evaluation document indexing complete.")
 
     @staticmethod
-    def calculate_precision_at_k(retrieved_chunks: List[str], ground_truth_chunks: List[str], k: int) -> float:
+    def _normalize_metric_text(text: str) -> str:
+        return " ".join(text.casefold().split())
+
+    @classmethod
+    def _unique_ground_truth_chunks(cls, ground_truth_chunks: List[str]) -> List[str]:
+        unique_chunks = []
+        seen = set()
+        for chunk in ground_truth_chunks:
+            normalized = cls._normalize_metric_text(chunk)
+            if normalized and normalized not in seen:
+                unique_chunks.append(normalized)
+                seen.add(normalized)
+        return unique_chunks
+
+    @staticmethod
+    def _is_match(retrieved_chunk: str, ground_truth_chunk: str) -> bool:
+        return ground_truth_chunk in retrieved_chunk or retrieved_chunk in ground_truth_chunk
+
+    @classmethod
+    def _matched_ground_truth_indexes(
+        cls,
+        retrieved_chunks: List[str],
+        ground_truth_chunks: List[str],
+        k: int
+    ) -> set[int]:
+        matched_indexes = set()
+        seen_retrieved_chunks = set()
+
+        for chunk in retrieved_chunks[:k]:
+            normalized_chunk = cls._normalize_metric_text(chunk)
+            if not normalized_chunk or normalized_chunk in seen_retrieved_chunks:
+                continue
+
+            seen_retrieved_chunks.add(normalized_chunk)
+            for idx, gt in enumerate(ground_truth_chunks):
+                if idx not in matched_indexes and cls._is_match(normalized_chunk, gt):
+                    matched_indexes.add(idx)
+
+        return matched_indexes
+
+    @classmethod
+    def calculate_precision_at_k(cls, retrieved_chunks: List[str], ground_truth_chunks: List[str], k: int) -> float:
         top_k = retrieved_chunks[:k]
         if not top_k:
             return 0.0
-        relevant_retrieved = sum(1 for chunk in top_k if any(gt in chunk or chunk in gt for gt in ground_truth_chunks))
-        return relevant_retrieved / k
+        unique_ground_truth = cls._unique_ground_truth_chunks(ground_truth_chunks)
+        matched_targets = cls._matched_ground_truth_indexes(top_k, unique_ground_truth, k)
+        return len(matched_targets) / k
 
-    @staticmethod
-    def calculate_recall_at_k(retrieved_chunks: List[str], ground_truth_chunks: List[str], k: int) -> float:
-        top_k = retrieved_chunks[:k]
-        if not ground_truth_chunks:
+    @classmethod
+    def calculate_recall_at_k(cls, retrieved_chunks: List[str], ground_truth_chunks: List[str], k: int) -> float:
+        unique_ground_truth = cls._unique_ground_truth_chunks(ground_truth_chunks)
+        if not unique_ground_truth:
             return 0.0
-        relevant_retrieved = sum(1 for chunk in top_k if any(gt in chunk or chunk in gt for gt in ground_truth_chunks))
-        return relevant_retrieved / len(ground_truth_chunks)
+        matched_targets = cls._matched_ground_truth_indexes(retrieved_chunks, unique_ground_truth, k)
+        return len(matched_targets) / len(unique_ground_truth)
 
-    @staticmethod
-    def calculate_mrr(retrieved_chunks: List[str], ground_truth_chunks: List[str]) -> float:
+    @classmethod
+    def calculate_mrr(cls, retrieved_chunks: List[str], ground_truth_chunks: List[str]) -> float:
+        unique_ground_truth = cls._unique_ground_truth_chunks(ground_truth_chunks)
+        if not unique_ground_truth:
+            return 0.0
+
+        seen_retrieved_chunks = set()
         for rank, chunk in enumerate(retrieved_chunks, start=1):
-            if any(gt in chunk or chunk in gt for gt in ground_truth_chunks):
+            normalized_chunk = cls._normalize_metric_text(chunk)
+            if not normalized_chunk or normalized_chunk in seen_retrieved_chunks:
+                continue
+
+            seen_retrieved_chunks.add(normalized_chunk)
+            if any(cls._is_match(normalized_chunk, gt) for gt in unique_ground_truth):
                 return 1.0 / rank
         return 0.0
 
@@ -89,8 +167,18 @@ class RAGEvaluator:
             return 0.0
         return float(np.dot(v1, v2) / (norm1 * norm2))
 
-    async def evaluate_strategy(self, strategy_name: str, k: int = 3) -> Dict[str, Any]:
-        logger.info(f"--- Evaluating Strategy: {strategy_name} (K={k}) ---")
+    async def evaluate_strategy(
+        self,
+        strategy_name: str,
+        k: int = 3,
+        max_questions: Optional[int] = None,
+        include_generation: bool = True
+    ) -> Dict[str, Any]:
+        dataset = self.dataset[:max_questions] if max_questions is not None else self.dataset
+        logger.info(
+            f"--- Evaluating Strategy: {strategy_name} (K={k}, questions={len(dataset)}, "
+            f"include_generation={include_generation}) ---"
+        )
         precision_list = []
         recall_list = []
         mrr_list = []
@@ -98,7 +186,7 @@ class RAGEvaluator:
         latencies = []
         item_details = []
 
-        for item in self.dataset:
+        for item in dataset:
             question = item["question"]
             expected_answer = item["expected_answer"]
             ground_truth_chunks = item.get("ground_truth_chunks", [])
@@ -134,10 +222,13 @@ class RAGEvaluator:
             recall_list.append(r_k)
             mrr_list.append(mrr)
 
-            # Generate answer and evaluate Answer Correctness (Semantic Similarity)
-            context = retriever_service.format_context(results)
-            generated_answer = await llm_service.generate_answer(question, context)
-            correctness = self.calculate_semantic_similarity(generated_answer, expected_answer)
+            generated_answer = ""
+            correctness = 0.0
+            if include_generation:
+                # Generate answer and evaluate Answer Correctness (Semantic Similarity)
+                context = retriever_service.format_context(results)
+                generated_answer = await llm_service.generate_answer(question, context)
+                correctness = self.calculate_semantic_similarity(generated_answer, expected_answer)
             correctness_list.append(correctness)
 
             item_details.append({
@@ -160,19 +251,30 @@ class RAGEvaluator:
             "precision_at_k": float(np.mean(precision_list)),
             "recall_at_k": float(np.mean(recall_list)),
             "mrr": float(np.mean(mrr_list)),
-            "answer_correctness": float(np.mean(correctness_list)),
+            "answer_correctness": float(np.mean(correctness_list)) if correctness_list else 0.0,
             "avg_latency_ms": float(np.mean(latencies)),
             "item_details": item_details
         }
         return metrics
 
-    async def run_evaluation(self, k: int = 3) -> List[Dict[str, Any]]:
+    async def run_evaluation(
+        self,
+        k: int = 3,
+        max_questions: Optional[int] = None,
+        strategies: Optional[List[str]] = None,
+        include_generation: bool = True
+    ) -> List[Dict[str, Any]]:
         self.setup_eval_documents()
-        strategies = ["dense", "hybrid", "hybrid_reranked"]
+        strategies = strategies or ["dense", "hybrid", "hybrid_reranked"]
         report_data = []
 
         for strat in strategies:
-            res = await self.evaluate_strategy(strat, k=k)
+            res = await self.evaluate_strategy(
+                strat,
+                k=k,
+                max_questions=max_questions,
+                include_generation=include_generation
+            )
             report_data.append(res)
 
         # Generate report output files
@@ -188,7 +290,9 @@ class RAGEvaluator:
             f.write(f"# 📊 ApexGuard Phase 3 — RAG & LLM Evaluation Report\n\n")
             f.write(f"**Generated At:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"**Evaluated Strategies:** {', '.join(strategies)}\n")
-            f.write(f"**Benchmark Dataset Size:** {len(self.dataset)} questions\n\n")
+            f.write(f"**Benchmark Dataset Size:** {len(self.dataset)} questions\n")
+            f.write(f"**Questions Evaluated:** {max_questions or len(self.dataset)}\n")
+            f.write(f"**Answer Generation:** {'enabled' if include_generation else 'disabled'}\n\n")
             f.write(f"## Summary Metrics\n\n")
             f.write(f"| Strategy | Precision@{k} | Recall@{k} | MRR | Answer Correctness | Avg Latency (ms) |\n")
             f.write(f"| :--- | :--- | :--- | :--- | :--- | :--- |\n")
@@ -223,5 +327,37 @@ class RAGEvaluator:
         return report_data
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run the ApexGuard RAG evaluation harness.")
+    parser.add_argument("--k", type=int, default=3, help="Retrieved chunks per question.")
+    parser.add_argument("--max-questions", type=int, default=5, help="Maximum questions to evaluate.")
+    parser.add_argument(
+        "--strategy",
+        choices=["dense", "hybrid", "hybrid_reranked", "all"],
+        default="dense",
+        help="Retrieval strategy to evaluate."
+    )
+    parser.add_argument(
+        "--include-generation",
+        action="store_true",
+        help="Run Ollama answer generation and semantic answer scoring."
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Run all questions, all strategies, and answer generation."
+    )
+    args = parser.parse_args()
+
     evaluator = RAGEvaluator()
-    asyncio.run(evaluator.run_evaluation())
+    if args.full:
+        asyncio.run(evaluator.run_evaluation(k=args.k))
+    else:
+        strategies = None if args.strategy == "all" else [args.strategy]
+        asyncio.run(
+            evaluator.run_evaluation(
+                k=args.k,
+                max_questions=args.max_questions,
+                strategies=strategies,
+                include_generation=args.include_generation
+            )
+        )
