@@ -7,6 +7,8 @@ venv/
 ENV/
 env/
 eval_reports/
+data/uploads/
+test_docs/
 
 # Data / Uploads / Vector DB storage
 data/
