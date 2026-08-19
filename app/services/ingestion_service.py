@@ -14,6 +14,7 @@ class ChunkingStrategy(str, Enum):
     RECURSIVE = "recursive"
     SEMANTIC = "semantic"
     SENTENCE = "sentence"  # Added as an additional boundary strategy
+    SECTION = "section"    # Section-aware chunking for structured documents
 
 
 class DocumentIngestionService:
@@ -189,6 +190,161 @@ class DocumentChunkerService:
             logger.error(f"Error during semantic chunking: {e}. Falling back to recursive chunking.")
             return DocumentChunkerService.recursive_character_chunking(text, chunk_size, overlap)
 
+    @staticmethod
+    def section_aware_chunking(
+        text: str,
+        chunk_size: int = 500,
+        overlap: int = 50
+    ) -> List[dict]:
+        """
+        Splits document by sections (markdown headers) while keeping headings,
+        tables, code blocks, and procedures intact. Returns list of dicts with 'text' and 'section'.
+        """
+        if not text.strip():
+            return []
+
+        lines = text.split("\n")
+        sections = []
+        current_heading = "General"
+        current_lines = []
+
+        header_pattern = re.compile(r'^(#{1,6})\s+(.+)$')
+
+        for line in lines:
+            header_match = header_pattern.match(line.strip())
+            if header_match:
+                if current_lines:
+                    sections.append((current_heading, "\n".join(current_lines)))
+                    current_lines = []
+                current_heading = header_match.group(2).strip()
+                current_lines.append(line)
+            else:
+                current_lines.append(line)
+
+        if current_lines:
+            sections.append((current_heading, "\n".join(current_lines)))
+
+        chunks_with_meta = []
+
+        for heading, section_text in sections:
+            # Skip Table of Contents section as it dilutes vector embeddings with links
+            if heading.lower() in ["table of contents", "toc"]:
+                continue
+
+            blocks = []
+            sec_lines = section_text.split("\n")
+            i = 0
+            n = len(sec_lines)
+
+            while i < n:
+                line = sec_lines[i]
+                stripped = line.strip()
+
+                if stripped.startswith("```"):
+                    code_block = [line]
+                    i += 1
+                    while i < n:
+                        code_block.append(sec_lines[i])
+                        if sec_lines[i].strip().startswith("```"):
+                            i += 1
+                            break
+                        i += 1
+                    blocks.append("\n".join(code_block))
+                    continue
+
+                if "|" in stripped and (stripped.startswith("|") or stripped.endswith("|")):
+                    table_block = [line]
+                    i += 1
+                    while i < n and "|" in sec_lines[i].strip():
+                        table_block.append(sec_lines[i])
+                        i += 1
+                    blocks.append("\n".join(table_block))
+                    continue
+
+                if re.match(r'^(\d+\.|\-|\*)\s+', stripped):
+                    list_block = [line]
+                    i += 1
+                    while i < n and (re.match(r'^(\d+\.|\-|\*)\s+', sec_lines[i].strip()) or (sec_lines[i].startswith(" ") or sec_lines[i].startswith("\t"))):
+                        list_block.append(sec_lines[i])
+                        i += 1
+                    blocks.append("\n".join(list_block))
+                    continue
+
+                if not stripped:
+                    i += 1
+                    continue
+
+                para_block = [line]
+                i += 1
+                while i < n:
+                    nxt = sec_lines[i].strip()
+                    if not nxt or nxt.startswith("```") or ("|" in nxt and (nxt.startswith("|") or nxt.endswith("|"))) or re.match(r'^(#{1,6}|\d+\.|\-|\*)\s+', nxt):
+                        break
+                    para_block.append(sec_lines[i])
+                    i += 1
+                blocks.append("\n".join(para_block))
+
+            curr_chunk_blocks = []
+            curr_len = 0
+
+            for b in blocks:
+                b_len = len(b)
+                if b_len > chunk_size:
+                    if curr_chunk_blocks:
+                        chunk_content = "\n\n".join(curr_chunk_blocks).strip()
+                        if heading != "General" and not chunk_content.startswith("#"):
+                            chunk_content = f"[{heading}]\n{chunk_content}"
+                        chunks_with_meta.append({"text": chunk_content, "section": heading, "parent_text": section_text[:2000]})
+                        curr_chunk_blocks = []
+                        curr_len = 0
+
+                    sub_chunks = DocumentChunkerService.recursive_character_chunking(b, chunk_size, overlap)
+                    for sc in sub_chunks:
+                        sc_content = sc
+                        if heading != "General" and not sc_content.startswith("#"):
+                            sc_content = f"[{heading}]\n{sc_content}"
+                        chunks_with_meta.append({"text": sc_content, "section": heading, "parent_text": section_text[:2000]})
+                elif curr_len + b_len + 2 <= chunk_size:
+                    curr_chunk_blocks.append(b)
+                    curr_len += b_len + 2
+                else:
+                    chunk_content = "\n\n".join(curr_chunk_blocks).strip()
+                    if heading != "General" and not chunk_content.startswith("#"):
+                        chunk_content = f"[{heading}]\n{chunk_content}"
+                    chunks_with_meta.append({"text": chunk_content, "section": heading, "parent_text": section_text[:2000]})
+                    curr_chunk_blocks = [b]
+                    curr_len = b_len
+
+            if curr_chunk_blocks:
+                chunk_content = "\n\n".join(curr_chunk_blocks).strip()
+                if heading != "General" and not chunk_content.startswith("#"):
+                    chunk_content = f"[{heading}]\n{chunk_content}"
+                chunks_with_meta.append({"text": chunk_content, "section": heading, "parent_text": section_text[:2000]})
+
+        if not chunks_with_meta:
+            rec_chunks = DocumentChunkerService.recursive_character_chunking(text, chunk_size, overlap)
+            chunks_with_meta = [{"text": c, "section": "General", "parent_text": text[:2000]} for c in rec_chunks]
+
+        return chunks_with_meta
+
+    @classmethod
+    def chunk_document_with_metadata(
+        cls,
+        text: str,
+        strategy: str = ChunkingStrategy.SECTION,
+        chunk_size: int = 500,
+        overlap: int = 50,
+        embedding_fn: Optional[Callable[[List[str]], List[List[float]]]] = None
+    ) -> List[dict]:
+        """Returns structured list of dicts: [{"text": ..., "section": ...}, ...]"""
+        strat_str = str(strategy).lower() if strategy else ChunkingStrategy.SECTION.value
+
+        if strat_str == ChunkingStrategy.SECTION.value:
+            return cls.section_aware_chunking(text, chunk_size, overlap)
+        else:
+            chunks = cls.chunk_document(text, strategy, chunk_size, overlap, embedding_fn)
+            return [{"text": c, "section": "General"} for c in chunks]
+
     @classmethod
     def chunk_document(
         cls, 
@@ -208,6 +364,7 @@ class DocumentChunkerService:
             ChunkingStrategy.FIXED.value: lambda: cls.fixed_size_chunking(text, chunk_size, overlap),
             ChunkingStrategy.RECURSIVE.value: lambda: cls.recursive_character_chunking(text, chunk_size, overlap),
             ChunkingStrategy.SENTENCE.value: lambda: cls.sentence_chunking(text, chunk_size, overlap),
+            ChunkingStrategy.SECTION.value: lambda: [c["text"] for c in cls.section_aware_chunking(text, chunk_size, overlap)],
             ChunkingStrategy.SEMANTIC.value: lambda: cls.semantic_chunking(
                 text, chunk_size, overlap, embedding_fn=embedding_fn
             ),
@@ -218,4 +375,4 @@ class DocumentChunkerService:
         chunks = chunker_func()
 
         logger.info(f"Chunking complete → {len(chunks)} chunks produced")
-        return chunks
+        return chunks

@@ -9,7 +9,7 @@ env/
 eval_reports/
 data/uploads/
 test_docs/
-
+.agents/
 # Data / Uploads / Vector DB storage
 data/
 qdrant_storage/

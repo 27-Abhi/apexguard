@@ -43,7 +43,7 @@ async def ingest_file(
     # Remove any previously indexed chunks for the same file so repeated uploads update rather than duplicate.
     vector_service.delete_documents(metadata_filter={"filename": file.filename})
 
-    chunks = DocumentChunkerService.chunk_document(
+    chunks_with_meta = DocumentChunkerService.chunk_document_with_metadata(
         text=extracted_text, 
         strategy=chunk_strategy, 
         chunk_size=chunk_size, 
@@ -51,17 +51,21 @@ async def ingest_file(
         embedding_fn=embedding_service.embed_texts  # Passed to support semantic chunking
     )
 
+    chunks = [c["text"] for c in chunks_with_meta]
     embeddings = embedding_service.embed_texts(chunks)
     metadatas = [
         {
             "filename": file.filename,
+            "source": file.filename,
+            "section": c.get("section", "General"),
+            "parent_text": c.get("parent_text", c["text"]),
             "chunk_index": idx,
             "chunk_strategy": chunk_strategy.value if isinstance(chunk_strategy, ChunkingStrategy) else chunk_strategy,
             "chunk_size": chunk_size,
             "chunk_overlap": chunk_overlap,
             "total_chunks": len(chunks)
         }
-        for idx in range(len(chunks))
+        for idx, c in enumerate(chunks_with_meta)
     ]
 
     point_ids = vector_service.insert_documents(chunks, embeddings, metadatas)
@@ -90,7 +94,7 @@ def ingest_raw_text(payload: TextIngestRequest):
     filename = f"text_{payload.title.replace(' ', '_').lower()}.txt"
     vector_service.delete_documents(metadata_filter={"filename": filename})
 
-    chunks = DocumentChunkerService.chunk_document(
+    chunks_with_meta = DocumentChunkerService.chunk_document_with_metadata(
         text=payload.content,
         strategy=payload.chunk_strategy,
         chunk_size=payload.chunk_size,
@@ -98,18 +102,21 @@ def ingest_raw_text(payload: TextIngestRequest):
         embedding_fn=embedding_service.embed_texts
     )
 
+    chunks = [c["text"] for c in chunks_with_meta]
     embeddings = embedding_service.embed_texts(chunks)
     metadatas = [
         {
             "filename": filename,
+            "source": filename,
             "title": payload.title,
+            "section": c.get("section", "General"),
             "chunk_index": idx,
             "chunk_strategy": payload.chunk_strategy,
             "chunk_size": payload.chunk_size,
             "chunk_overlap": payload.chunk_overlap,
             "total_chunks": len(chunks)
         }
-        for idx in range(len(chunks))
+        for idx, c in enumerate(chunks_with_meta)
     ]
 
     point_ids = vector_service.insert_documents(chunks, embeddings, metadatas)
