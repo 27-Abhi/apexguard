@@ -219,7 +219,8 @@ apexguard/
 | **Sparse Embeddings** | FastEmbed | `Qdrant/bm25` | Sparse vector term-frequency keyword index |
 | **Re-ranker** | FlashRank | `ms-marco-MiniLM-L-12-v2` | Lightweight neural cross-encoder for score refinement |
 | **Evaluation Harness** | Custom Engine | Precision@K, Recall@K, MRR, Semantic Similarity | Quantitative evaluation of retrieval and generation |
-| **LLM Engine** | Ollama | `qwen3:0.6b` (via `http://localhost:11434`) | Local execution of open-weights LLMs |
+| **LLM Judge (Eval)** | Ollama | `qwen3.5:2b` | Evaluates accuracy, relevance, and faithfulness of generated answers |
+| **LLM Engine** | Ollama | `qwen3:0.6b` (via `OLLAMA_BASE_URL`) | Local execution of open-weights LLMs |
 | **Containerization** | Docker, Docker Compose | Multi-container setup | Isolated environment build and execution |
 
 ---
@@ -266,7 +267,11 @@ apexguard/
    ```
 3. **Start Ollama Engine (In a separate terminal):**
    ```bash
+   # Run the main generation model
    ollama run qwen3:0.6b
+   
+   # Also pull the judge model if you plan to run evaluation benchmarks
+   ollama pull qwen3.5:2b
    ```
 4. **Launch ApexGuard Server:**
    ```bash
@@ -282,4 +287,11 @@ Run the full automated test suite using `python -m pytest`:
 python -m pytest tests/
 ```
 
+---
 
+## 🤖 8. AI Agent Configuration & Guidelines
+
+ApexGuard uses **Antigravity (Gemini)** as its AI pair programming assistant. To ensure the AI agent writes high-quality code and adheres to our engineering standards, we enforce project-wide rules:
+
+* **`GEMINI.md`:** Located in the repository root, this file contains the **Karpathy Rules** (guidelines for minimal, surgical, and goal-driven coding). The AI agent automatically reads this file on every interaction to guarantee its behavior aligns with our project standards.
+* **Skills:** (Previously located in `.agents/skills/karpathy-rules`) Any new automated runbooks or AI skills should be placed in the `.agents/skills/` directory. The base guidelines have been elevated to `GEMINI.md` for permanent, always-on enforcement.
