@@ -6,8 +6,10 @@ import asyncio
 import argparse
 import unittest
 import numpy as np
+import aiohttp
 from typing import List, Dict, Any, Optional
 
+from app.core.config import settings
 from app.services.rag_service import retriever_service
 from app.services.llm_service import llm_service
 from app.services.vector_service import vector_service
@@ -17,12 +19,14 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 class RAGEvaluator:
-    def __init__(self, dataset_path: str = "tests/eval_dataset.json"):
+    def __init__(self, dataset_path: str = "tests/eval_dataset.json", judge_model: str = "qwen3:0.6b"):
         self.dataset_path = dataset_path
         self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.docs_dir = self._resolve_eval_docs_dir()
         self.dataset = self._load_dataset()
-        logger.info(f"Loaded evaluation dataset with {len(self.dataset)} items from '{dataset_path}' using docs directory '{self.docs_dir}'")
+        self.judge_model = judge_model  # The local model used to grade the RAG outputs
+        self.ollama_url = f"{settings.OLLAMA_BASE_URL}/api/generate"
+        logger.info(f"Loaded evaluation dataset with {len(self.dataset)} items. LLM Judge: {self.judge_model}")
 
     def _resolve_eval_docs_dir(self) -> str:
         uploads_dir = os.path.join(self.project_root, "data", "uploads")
@@ -67,8 +71,9 @@ class RAGEvaluator:
                 raw_text = DocumentIngestionService.extract_text_from_file(file_path, filename)
                 if not raw_text.strip():
                     continue
+                # Phase 3 Chunking tuned for Rich Context
                 chunks_with_meta = DocumentChunkerService.chunk_document_with_metadata(
-                    raw_text, strategy=ChunkingStrategy.SECTION, chunk_size=500, overlap=50
+                    raw_text, strategy=ChunkingStrategy.SEMANTIC, chunk_size=600, overlap=200
                 )
                 if chunks_with_meta:
                     chunks = [c["text"] for c in chunks_with_meta]
@@ -107,23 +112,15 @@ class RAGEvaluator:
 
     @staticmethod
     def _is_match(retrieved_chunk: str, ground_truth_chunk: str) -> bool:
-        """
-        Match if:
-        1. Exact substring match (either direction), OR
-        2. Token-level overlap: >=80% of ground-truth tokens appear in retrieved chunk.
-           Safeguard: Short phrases (<= 3 words) must match exactly (substring).
-        """
         retrieved_lower = retrieved_chunk.lower()
         gt_lower = ground_truth_chunk.lower()
 
-        # 1. Exact substring check (handles exact hits and short acronyms safely)
         if gt_lower in retrieved_lower or retrieved_lower in gt_lower:
             return True
 
-        # 2. Robust Token Overlap check for longer phrases
         gt_tokens = gt_lower.split()
         if len(gt_tokens) <= 3:
-            return False  # Prevent "DSP Pipeline" from matching simple "DSP" incorrectly
+            return False
 
         retrieved_tokens = set(re.findall(r'\w+', retrieved_lower))
         gt_tokens_clean = set(re.findall(r'\w+', gt_lower))
@@ -148,12 +145,10 @@ class RAGEvaluator:
         
         for chunk in top_k:
             normalized_chunk = cls._normalize_metric_text(chunk)
-            # Deduplicate multiple child chunks mapping to the exact same parent text
             if not normalized_chunk or normalized_chunk in seen_retrieved_chunks:
                 continue
             seen_retrieved_chunks.add(normalized_chunk)
             
-            # A retrieved chunk is a "hit" if it matches ANY ground truth phrase (max 1 hit per chunk)
             if any(cls._is_match(normalized_chunk, gt) for gt in unique_ground_truth):
                 relevant_retrieved_count += 1
                 
@@ -177,7 +172,6 @@ class RAGEvaluator:
                 continue
             seen_retrieved_chunks.add(normalized_chunk)
             
-            # Count how many unique ground truth items we successfully found
             for idx, gt in enumerate(unique_ground_truth):
                 if idx not in matched_gt_indexes and cls._is_match(normalized_chunk, gt):
                     matched_gt_indexes.add(idx)
@@ -217,6 +211,50 @@ class RAGEvaluator:
             return 0.0
         return float(np.dot(v1, v2) / (norm1 * norm2))
 
+    async def _evaluate_with_llm(self, prompt: str) -> float:
+        """Helper to invoke local Ollama as a JSON judge."""
+        payload = {
+            "model": self.judge_model,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json"
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(self.ollama_url, json=payload, timeout=1000) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        response_text = data.get("response", "")
+                        
+                        # Robustly extract JSON if the small model adds conversational fluff
+                        match = re.search(r'\{.*?\}', response_text, re.DOTALL)
+                        if match:
+                            json_str = match.group(0)
+                            result = json.loads(json_str)
+                            return float(result.get("score", 0.0))
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"LLM Judge API Error HTTP {response.status}: {error_text}. (Ensure model '{self.judge_model}' is pulled via 'ollama pull {self.judge_model}')")
+        except Exception as e:
+            logger.error(f"LLM Judge connection failed (is Ollama running at {self.ollama_url}?): {e}")
+        return 0.0
+
+    async def evaluate_context_relevance(self, question: str, context: str) -> float:
+        prompt = (
+            "You are an impartial judge. Evaluate if the provided context contains information relevant to answering the question.\n"
+            f"Question: {question}\nContext: {context}\n"
+            "Output ONLY a valid JSON object with a single key 'score' having a value of 1.0 (highly relevant), 0.5 (partially relevant), or 0.0 (not relevant). Do not output any other text."
+        )
+        return await self._evaluate_with_llm(prompt)
+
+    async def evaluate_faithfulness(self, answer: str, context: str) -> float:
+        prompt = (
+            "You are an impartial judge. Evaluate if the generated answer is entirely supported by the provided context.\n"
+            f"Context: {context}\nAnswer: {answer}\n"
+            "Output ONLY a valid JSON object with a single key 'score' having a value of 1.0 (fully supported), 0.5 (partially supported/hallucinated), or 0.0 (totally hallucinated/not in context). Do not output any other text."
+        )
+        return await self._evaluate_with_llm(prompt)
+
     async def evaluate_strategy(
         self,
         strategy_name: str,
@@ -229,10 +267,9 @@ class RAGEvaluator:
             f"--- Evaluating Strategy: {strategy_name} (K={k}, questions={len(dataset)}, "
             f"include_generation={include_generation}) ---"
         )
-        precision_list = []
-        recall_list = []
-        mrr_list = []
-        correctness_list = []
+        
+        precision_list, recall_list, mrr_list = [], [], []
+        correctness_list, relevance_list, faithfulness_list = [], [], []
         latencies = []
         item_details = []
 
@@ -274,12 +311,21 @@ class RAGEvaluator:
             mrr_list.append(mrr)
 
             generated_answer = ""
-            correctness = 0.0
+            correctness, relevance, faithfulness = 0.0, 0.0, 0.0
+            
             if include_generation:
                 context = retriever_service.format_context(results)
                 generated_answer = await llm_service.generate_answer(question, context)
                 correctness = self.calculate_semantic_similarity(generated_answer, expected_answer)
-            correctness_list.append(correctness)
+                correctness_list.append(correctness)
+
+                # Skip LLM judging if the main LLM failed to connect
+                if "[ApexGuard Standalone Mode]" not in generated_answer:
+                    relevance = await self.evaluate_context_relevance(question, context)
+                    faithfulness = await self.evaluate_faithfulness(generated_answer, context)
+                
+                relevance_list.append(relevance)
+                faithfulness_list.append(faithfulness)
 
             item_details.append({
                 "id": item.get("id"),
@@ -293,6 +339,8 @@ class RAGEvaluator:
                 "recall_at_k": r_k,
                 "mrr": mrr,
                 "answer_correctness": correctness,
+                "context_relevance": relevance,
+                "faithfulness": faithfulness,
                 "latency_ms": elapsed_ms
             })
 
@@ -302,6 +350,8 @@ class RAGEvaluator:
             "recall_at_k": float(np.mean(recall_list)),
             "mrr": float(np.mean(mrr_list)),
             "answer_correctness": float(np.mean(correctness_list)) if correctness_list else 0.0,
+            "context_relevance": float(np.mean(relevance_list)) if relevance_list else 0.0,
+            "faithfulness": float(np.mean(faithfulness_list)) if faithfulness_list else 0.0,
             "avg_latency_ms": float(np.mean(latencies)),
             "item_details": item_details
         }
@@ -341,14 +391,16 @@ class RAGEvaluator:
             f.write(f"**Evaluated Strategies:** {', '.join(strategies)}\n")
             f.write(f"**Benchmark Dataset Size:** {len(self.dataset)} questions\n")
             f.write(f"**Questions Evaluated:** {max_questions or len(self.dataset)}\n")
-            f.write(f"**Answer Generation:** {'enabled' if include_generation else 'disabled'}\n\n")
+            f.write(f"**Answer Generation:** {'enabled' if include_generation else 'disabled'}\n")
+            f.write(f"**LLM Judge Model:** `{self.judge_model}`\n\n")
+            
             f.write(f"## Summary Metrics\n\n")
-            f.write(f"| Strategy | Precision@{k} | Recall@{k} | MRR | Answer Correctness | Avg Latency (ms) |\n")
-            f.write(f"| :--- | :--- | :--- | :--- | :--- | :--- |\n")
+            f.write(f"| Strategy | Precision@{k} | Recall@{k} | MRR | Answer Correctness | Context Relevance | Faithfulness | Avg Latency (ms) |\n")
+            f.write(f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n")
             for r in report_data:
                 f.write(
                     f"| `{r['strategy']}` | {r['precision_at_k']:.4f} | {r['recall_at_k']:.4f} | "
-                    f"{r['mrr']:.4f} | {r['answer_correctness']:.4f} | {r['avg_latency_ms']:.2f} |\n"
+                    f"{r['mrr']:.4f} | {r['answer_correctness']:.4f} | {r['context_relevance']:.4f} | {r['faithfulness']:.4f} | {r['avg_latency_ms']:.2f} |\n"
                 )
             
             f.write("\n---\n## Item-by-Item Detailed Breakdown\n\n")
@@ -360,14 +412,11 @@ class RAGEvaluator:
                     f.write(f"- **Expected Answer:** {item['expected_answer']}\n")
                     f.write(f"- **Generated Answer:** {item['generated_answer']}\n")
                     f.write(f"- **Target Doc:** `{item['ground_truth_doc']}`\n")
-                    f.write(f"- **Scores:** Precision@{k}: `{item['precision_at_k']:.2f}`, Recall@{k}: `{item['recall_at_k']:.2f}`, MRR: `{item['mrr']:.2f}`, Answer Correctness: `{item['answer_correctness']:.4f}`, Latency: `{item['latency_ms']:.2f}ms`\n")
+                    f.write(f"- **Retrieval Scores:** Precision@{k}: `{item['precision_at_k']:.2f}`, Recall@{k}: `{item['recall_at_k']:.2f}`, MRR: `{item['mrr']:.2f}`, Latency: `{item['latency_ms']:.2f}ms`\n")
+                    f.write(f"- **Generation Scores:** Correctness: `{item['answer_correctness']:.2f}`, Context Relevance: `{item['context_relevance']:.2f}`, Faithfulness: `{item['faithfulness']:.2f}`\n")
                     f.write(f"- **Ground Truth Targets:**\n")
                     for gt in item["ground_truth_chunks"]:
                         f.write(f"  - `{gt}`\n")
-                    f.write(f"- **Retrieved Chunks:**\n")
-                    for idx, chunk in enumerate(item["retrieved_chunks"], start=1):
-                        clean_chunk = chunk.replace('\n', ' ')
-                        f.write(f"  {idx}. \"{clean_chunk[:150]}...\"\n")
                     f.write("\n")
 
             f.write("\n---\n*Report automatically generated by `tests.run_eval` harness.*")
@@ -401,7 +450,6 @@ class TestRAGEvaluatorMetrics(unittest.TestCase):
     def test_case_d(self):
         gold = ["A chunk", "B chunk"]
         retrieved = ["A chunk", "A chunk", "C chunk"]
-        # Tests deduplication logic against inflated hits
         self.assertAlmostEqual(RAGEvaluator.calculate_precision_at_k(retrieved, gold, 3), 1/3)
         self.assertAlmostEqual(RAGEvaluator.calculate_recall_at_k(retrieved, gold, 3), 0.5)
         self.assertEqual(RAGEvaluator.calculate_mrr(retrieved, gold), 1.0)
@@ -427,6 +475,12 @@ if __name__ == "__main__":
         help="Retrieval strategy to evaluate."
     )
     parser.add_argument(
+        "--judge-model",
+        type=str,
+        default="qwen3:0.6b",
+        help="Ollama model to use as the LLM Judge for Faithfulness and Context Relevance."
+    )
+    parser.add_argument(
         "--include-generation",
         action="store_true",
         help="Run Ollama answer generation and semantic answer scoring."
@@ -446,9 +500,9 @@ if __name__ == "__main__":
     if not args.skip_tests:
         run_unit_tests()
 
-    evaluator = RAGEvaluator()
+    evaluator = RAGEvaluator(judge_model=args.judge_model)
     if args.full:
-        asyncio.run(evaluator.run_evaluation(k=args.k))
+        asyncio.run(evaluator.run_evaluation(k=args.k, include_generation=True))
     else:
         strategies = None if args.strategy == "all" else [args.strategy]
         asyncio.run(

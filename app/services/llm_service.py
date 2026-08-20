@@ -36,7 +36,7 @@ Answer:"""
         
         logger.info(f"Sending generation request to Ollama (model: {self.model}, prompt_length: {len(prompt)} chars)")
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
+            async with httpx.AsyncClient(timeout=1000.0) as client:
                 response = await client.post(f"{self.base_url}/api/generate", json=payload)
                 if response.status_code == 200:
                     data = response.json()
