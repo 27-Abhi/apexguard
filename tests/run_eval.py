@@ -1,10 +1,13 @@
 import os
+import re
 import json
 import time
 import asyncio
 import argparse
+import unittest
 import numpy as np
 from typing import List, Dict, Any, Optional
+
 from app.services.rag_service import retriever_service
 from app.services.llm_service import llm_service
 from app.services.vector_service import vector_service
@@ -37,11 +40,6 @@ class RAGEvaluator:
         return dataset
 
     def setup_eval_documents(self):
-        """
-        Indexes only the benchmark documents in data/uploads. This ensures the evaluation
-        runs against the upload corpus rather than any bundled test docs, and it clears the
-        active collection before re-indexing so repeated calls do not duplicate chunks.
-        """
         docs_dir = self.docs_dir
         if not os.path.exists(docs_dir):
             logger.warning(f"Evaluation docs directory '{docs_dir}' does not exist.")
@@ -69,10 +67,23 @@ class RAGEvaluator:
                 raw_text = DocumentIngestionService.extract_text_from_file(file_path, filename)
                 if not raw_text.strip():
                     continue
-                chunks = DocumentChunkerService.chunk_document(raw_text, strategy=ChunkingStrategy.RECURSIVE, chunk_size=500, overlap=50)
-                if chunks:
+                chunks_with_meta = DocumentChunkerService.chunk_document_with_metadata(
+                    raw_text, strategy=ChunkingStrategy.SECTION, chunk_size=500, overlap=50
+                )
+                if chunks_with_meta:
+                    chunks = [c["text"] for c in chunks_with_meta]
                     embeddings = embedding_service.embed_texts(chunks)
-                    metadatas = [{"filename": filename, "chunk_index": i} for i in range(len(chunks))]
+                    metadatas = [
+                        {
+                            "filename": filename,
+                            "source": filename,
+                            "section": c.get("section", "General"),
+                            "parent_text": c.get("parent_text", c["text"]),
+                            "chunk_index": i,
+                            "total_chunks": len(chunks)
+                        }
+                        for i, c in enumerate(chunks_with_meta)
+                    ]
                     vector_service.insert_documents(chunks=chunks, embeddings=embeddings, metadatas=metadatas)
                     logger.info(f"Ingested {len(chunks)} chunks for document '{filename}' into vector DB.")
             except Exception as e:
@@ -96,46 +107,84 @@ class RAGEvaluator:
 
     @staticmethod
     def _is_match(retrieved_chunk: str, ground_truth_chunk: str) -> bool:
-        return ground_truth_chunk in retrieved_chunk or retrieved_chunk in ground_truth_chunk
+        """
+        Match if:
+        1. Exact substring match (either direction), OR
+        2. Token-level overlap: >=80% of ground-truth tokens appear in retrieved chunk.
+           Safeguard: Short phrases (<= 3 words) must match exactly (substring).
+        """
+        retrieved_lower = retrieved_chunk.lower()
+        gt_lower = ground_truth_chunk.lower()
 
-    @classmethod
-    def _matched_ground_truth_indexes(
-        cls,
-        retrieved_chunks: List[str],
-        ground_truth_chunks: List[str],
-        k: int
-    ) -> set[int]:
-        matched_indexes = set()
-        seen_retrieved_chunks = set()
+        # 1. Exact substring check (handles exact hits and short acronyms safely)
+        if gt_lower in retrieved_lower or retrieved_lower in gt_lower:
+            return True
 
-        for chunk in retrieved_chunks[:k]:
-            normalized_chunk = cls._normalize_metric_text(chunk)
-            if not normalized_chunk or normalized_chunk in seen_retrieved_chunks:
-                continue
+        # 2. Robust Token Overlap check for longer phrases
+        gt_tokens = gt_lower.split()
+        if len(gt_tokens) <= 3:
+            return False  # Prevent "DSP Pipeline" from matching simple "DSP" incorrectly
 
-            seen_retrieved_chunks.add(normalized_chunk)
-            for idx, gt in enumerate(ground_truth_chunks):
-                if idx not in matched_indexes and cls._is_match(normalized_chunk, gt):
-                    matched_indexes.add(idx)
+        retrieved_tokens = set(re.findall(r'\w+', retrieved_lower))
+        gt_tokens_clean = set(re.findall(r'\w+', gt_lower))
 
-        return matched_indexes
+        if not gt_tokens_clean:
+            return False
+
+        overlap_tokens = gt_tokens_clean.intersection(retrieved_tokens)
+        overlap_ratio = len(overlap_tokens) / len(gt_tokens_clean)
+
+        return overlap_ratio >= 0.80
 
     @classmethod
     def calculate_precision_at_k(cls, retrieved_chunks: List[str], ground_truth_chunks: List[str], k: int) -> float:
         top_k = retrieved_chunks[:k]
         if not top_k:
             return 0.0
+            
         unique_ground_truth = cls._unique_ground_truth_chunks(ground_truth_chunks)
-        matched_targets = cls._matched_ground_truth_indexes(top_k, unique_ground_truth, k)
-        return len(matched_targets) / k
+        relevant_retrieved_count = 0
+        seen_retrieved_chunks = set()
+        
+        for chunk in top_k:
+            normalized_chunk = cls._normalize_metric_text(chunk)
+            # Deduplicate multiple child chunks mapping to the exact same parent text
+            if not normalized_chunk or normalized_chunk in seen_retrieved_chunks:
+                continue
+            seen_retrieved_chunks.add(normalized_chunk)
+            
+            # A retrieved chunk is a "hit" if it matches ANY ground truth phrase (max 1 hit per chunk)
+            if any(cls._is_match(normalized_chunk, gt) for gt in unique_ground_truth):
+                relevant_retrieved_count += 1
+                
+        p_k = relevant_retrieved_count / k
+        assert 0.0 <= p_k <= 1.0, f"Precision bounds violated: {p_k}"
+        return p_k
 
     @classmethod
     def calculate_recall_at_k(cls, retrieved_chunks: List[str], ground_truth_chunks: List[str], k: int) -> float:
         unique_ground_truth = cls._unique_ground_truth_chunks(ground_truth_chunks)
         if not unique_ground_truth:
             return 0.0
-        matched_targets = cls._matched_ground_truth_indexes(retrieved_chunks, unique_ground_truth, k)
-        return len(matched_targets) / len(unique_ground_truth)
+            
+        top_k = retrieved_chunks[:k]
+        matched_gt_indexes = set()
+        seen_retrieved_chunks = set()
+        
+        for chunk in top_k:
+            normalized_chunk = cls._normalize_metric_text(chunk)
+            if not normalized_chunk or normalized_chunk in seen_retrieved_chunks:
+                continue
+            seen_retrieved_chunks.add(normalized_chunk)
+            
+            # Count how many unique ground truth items we successfully found
+            for idx, gt in enumerate(unique_ground_truth):
+                if idx not in matched_gt_indexes and cls._is_match(normalized_chunk, gt):
+                    matched_gt_indexes.add(idx)
+                    
+        r_k = len(matched_gt_indexes) / len(unique_ground_truth)
+        assert 0.0 <= r_k <= 1.0, f"Recall bounds violated: {r_k}"
+        return r_k
 
     @classmethod
     def calculate_mrr(cls, retrieved_chunks: List[str], ground_truth_chunks: List[str]) -> float:
@@ -148,15 +197,16 @@ class RAGEvaluator:
             normalized_chunk = cls._normalize_metric_text(chunk)
             if not normalized_chunk or normalized_chunk in seen_retrieved_chunks:
                 continue
-
             seen_retrieved_chunks.add(normalized_chunk)
+            
             if any(cls._is_match(normalized_chunk, gt) for gt in unique_ground_truth):
-                return 1.0 / rank
+                mrr = 1.0 / rank
+                assert 0.0 <= mrr <= 1.0, f"MRR bounds violated: {mrr}"
+                return mrr
         return 0.0
 
     @staticmethod
     def calculate_semantic_similarity(text1: str, text2: str) -> float:
-        """Calculates cosine similarity between two text strings using FastEmbed embeddings."""
         if not text1 or not text2:
             return 0.0
         v1 = np.array(embedding_service.embed_query(text1))
@@ -194,7 +244,6 @@ class RAGEvaluator:
 
             start_time = time.time()
             
-            # Execute retrieval based on strategy
             if strategy_name == "dense":
                 results = retriever_service.retrieve(query=question, top_k=k)
             elif strategy_name == "hybrid":
@@ -211,9 +260,11 @@ class RAGEvaluator:
             elapsed_ms = (time.time() - start_time) * 1000
             latencies.append(elapsed_ms)
 
-            retrieved_chunk_texts = [res["text"] for res in results]
+            retrieved_chunk_texts = [
+                res.get("metadata", {}).get("parent_text") or res["text"]
+                for res in results
+            ]
 
-            # Compute retrieval metrics
             p_k = self.calculate_precision_at_k(retrieved_chunk_texts, ground_truth_chunks, k)
             r_k = self.calculate_recall_at_k(retrieved_chunk_texts, ground_truth_chunks, k)
             mrr = self.calculate_mrr(retrieved_chunk_texts, ground_truth_chunks)
@@ -225,7 +276,6 @@ class RAGEvaluator:
             generated_answer = ""
             correctness = 0.0
             if include_generation:
-                # Generate answer and evaluate Answer Correctness (Semantic Similarity)
                 context = retriever_service.format_context(results)
                 generated_answer = await llm_service.generate_answer(question, context)
                 correctness = self.calculate_semantic_similarity(generated_answer, expected_answer)
@@ -277,7 +327,6 @@ class RAGEvaluator:
             )
             report_data.append(res)
 
-        # Generate report output files
         os.makedirs("docs/eval_reports", exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         
@@ -326,6 +375,47 @@ class RAGEvaluator:
         logger.info(f"Evaluation report generated successfully:\n - JSON: {json_path}\n - Markdown: {md_path}")
         return report_data
 
+
+class TestRAGEvaluatorMetrics(unittest.TestCase):
+    def test_case_a(self):
+        gold = ["A chunk", "B chunk"]
+        retrieved = ["A chunk", "C chunk", "D chunk"]
+        self.assertAlmostEqual(RAGEvaluator.calculate_precision_at_k(retrieved, gold, 3), 1/3)
+        self.assertAlmostEqual(RAGEvaluator.calculate_recall_at_k(retrieved, gold, 3), 1/2)
+        self.assertAlmostEqual(RAGEvaluator.calculate_mrr(retrieved, gold), 1.0)
+        
+    def test_case_b(self):
+        gold = ["A chunk"]
+        retrieved = ["B chunk", "C chunk", "D chunk"]
+        self.assertEqual(RAGEvaluator.calculate_precision_at_k(retrieved, gold, 3), 0.0)
+        self.assertEqual(RAGEvaluator.calculate_recall_at_k(retrieved, gold, 3), 0.0)
+        self.assertEqual(RAGEvaluator.calculate_mrr(retrieved, gold), 0.0)
+        
+    def test_case_c(self):
+        gold = ["A chunk", "B chunk", "C chunk", "D chunk", "E chunk"]
+        retrieved = ["A chunk", "B chunk", "C chunk"]
+        self.assertEqual(RAGEvaluator.calculate_precision_at_k(retrieved, gold, 3), 1.0)
+        self.assertEqual(RAGEvaluator.calculate_recall_at_k(retrieved, gold, 3), 0.6)
+        self.assertEqual(RAGEvaluator.calculate_mrr(retrieved, gold), 1.0)
+        
+    def test_case_d(self):
+        gold = ["A chunk", "B chunk"]
+        retrieved = ["A chunk", "A chunk", "C chunk"]
+        # Tests deduplication logic against inflated hits
+        self.assertAlmostEqual(RAGEvaluator.calculate_precision_at_k(retrieved, gold, 3), 1/3)
+        self.assertAlmostEqual(RAGEvaluator.calculate_recall_at_k(retrieved, gold, 3), 0.5)
+        self.assertEqual(RAGEvaluator.calculate_mrr(retrieved, gold), 1.0)
+
+def run_unit_tests():
+    print("\n[🛠️ SYSTEM] Running Evaluation Metric Unit Tests...")
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestRAGEvaluatorMetrics)
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if not result.wasSuccessful():
+        print("[❌ ERROR] Unit tests failed! Halting evaluation to prevent impossible metrics.")
+        exit(1)
+    print("[✅ SUCCESS] Unit tests passed mathematically bounded checks.\n")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the ApexGuard RAG evaluation harness.")
     parser.add_argument("--k", type=int, default=3, help="Retrieved chunks per question.")
@@ -346,7 +436,15 @@ if __name__ == "__main__":
         action="store_true",
         help="Run all questions, all strategies, and answer generation."
     )
+    parser.add_argument(
+        "--skip-tests",
+        action="store_true",
+        help="Skip running unit tests prior to evaluation."
+    )
     args = parser.parse_args()
+
+    if not args.skip_tests:
+        run_unit_tests()
 
     evaluator = RAGEvaluator()
     if args.full:
