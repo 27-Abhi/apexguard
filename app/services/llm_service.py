@@ -36,7 +36,7 @@ Answer:"""
         
         logger.info(f"Sending generation request to Ollama (model: {self.model}, prompt_length: {len(prompt)} chars)")
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=1000.0) as client:
                 response = await client.post(f"{self.base_url}/api/generate", json=payload)
                 if response.status_code == 200:
                     data = response.json()
@@ -63,7 +63,7 @@ Answer:"""
         }
         logger.info(f"Starting streaming generation (model: {self.model})")
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
                 async with client.stream("POST", f"{self.base_url}/api/generate", json=payload) as response:
                     async for line in response.aiter_lines():
                         if line:

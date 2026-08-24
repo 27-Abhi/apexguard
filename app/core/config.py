@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     # Hybrid retrieval settings
     HYBRID_RRF_K: int = int(os.getenv("HYBRID_RRF_K", "60"))
     HYBRID_RELEVANT_ITEMS: int = int(os.getenv("HYBRID_RELEVANT_ITEMS", "3"))
-    HYBRID_TOP_K: int = int(os.getenv("HYBRID_TOP_K", os.getenv("HYBRID_RELEVANT_ITEMS", "3")))
-    HYBRID_RRF_CANDIDATE_K: int = int(os.getenv("HYBRID_RRF_CANDIDATE_K", "10"))
+    HYBRID_TOP_K: int = int(os.getenv("HYB  RID_TOP_K", os.getenv("HYBRID_RELEVANT_ITEMS", "3")))
+    HYBRID_RRF_CANDIDATE_K: int = int(os.getenv("HYBRID_RRF_CANDIDATE_K", "15"))
     HYBRID_DENSE_CANDIDATE_K: int = int(os.getenv("HYBRID_DENSE_CANDIDATE_K", "20"))
     HYBRID_SPARSE_CANDIDATE_K: int = int(os.getenv("HYBRID_SPARSE_CANDIDATE_K", "20"))
     HYBRID_FUSION_WEIGHT: float = float(os.getenv("HYBRID_FUSION_WEIGHT", "0.5"))

@@ -9,7 +9,7 @@ def test_health_check():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "online"
-    assert data["phase"] == 2
+    assert data["phase"] == 3
 
 def test_ingest_text():
     payload = {
@@ -53,3 +53,16 @@ def test_query_hybrid_rag():
     assert "sources" in data
     assert isinstance(data["sources"], list)
     assert len(data["sources"]) <= 2
+
+def test_eval_endpoint():
+    response = client.post("/api/v1/eval/run?k=2")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["benchmark_questions"] >= 1
+    assert data["questions_evaluated"] <= 5
+    assert data["strategies_evaluated"] == ["dense"]
+    assert data["include_generation"] is False
+    assert "results" in data
+    assert len(data["results"]) == 1
+

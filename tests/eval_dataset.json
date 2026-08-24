@@ -1,0 +1,63 @@
+[
+  {
+    "id": "eval_001",
+    "question": "What core components and loops make up the VoiceBotRelay call flow?",
+    "expected_answer": "VoiceBotRelay runs five concurrent async loops: audio ingestion, process transcripts, bot orchestration via WebSocket, audio streaming out to Twilio, and silence monitoring.",
+    "ground_truth_doc": "EVAL pipeline.txt",
+    "ground_truth_chunks": [
+      "Launch 4 Concurrent Async Loops",
+      "receive_from_twilio_loop",
+      "process_transcripts_loop",
+      "send_to_twilio_loop",
+      "monitor_silence_loop"
+    ]
+  },
+  {
+    "id": "eval_002",
+    "question": "What metrics are included in the deterministic evaluation suite for voice AI?",
+    "expected_answer": "Deterministic metrics include STT Word Error Rate (WER) and Character Error Rate (CER), Tool Selection Accuracy, Tool Argument Schema Validity, Time-To-First-Audio (TTFA), End-to-End Latency, and Barge-in Success Rate.",
+    "ground_truth_doc": "EVAL pipeline.txt",
+    "ground_truth_chunks": [
+      "STT WER / CER",
+      "Tool Selection Accuracy",
+      "Time-to-First-Audio (TTFA)",
+      "Barge-in Success Rate"
+    ]
+  },
+  {
+    "id": "eval_003",
+    "question": "What evaluation insertion points and telemetry data are captured during STT and Conductor phases?",
+    "expected_answer": "STT captures stt_start_ts, stt_end_ts, and transcript text from process_transcripts_loop. Conductor worker records TTFT, TTS latency, sentence text, and filler events.",
+    "ground_truth_doc": "EVAL pipeline.txt",
+    "ground_truth_chunks": [
+      "Capture stt_start_ts, stt_end_ts, text",
+      "Record TTFT, TTS latency, sentence text, filler events"
+    ]
+  },
+  {
+    "id": "eval_004",
+    "question": "What is the recommended trace schema for VoiceBotRelay evaluations?",
+    "expected_answer": "The trace schema contains trace_id, call_sid, conversation_id, start_time, and turn details covering stt, llm, tts, voice_ux, and handoff stats.",
+    "ground_truth_doc": "EVAL pipeline.txt",
+    "ground_truth_chunks": [
+      "trace_id",
+      "call_sid",
+      "user_speech_start_ts",
+      "first_chunk_latency_ms",
+      "time_to_first_audio_ms"
+    ]
+  },
+  {
+    "id": "eval_005",
+    "question": "What are the key steps in the MVP Eval Pipeline implementation?",
+    "expected_answer": "The MVP eval pipeline requires a ConversationTracer class in app/telemetry/tracer.py and an offline runner in evals/runners/offline_runner.py measuring STT WER %, Tool Selection Accuracy %, TTFA, and Task Success %.",
+    "ground_truth_doc": "EVAL pipeline.txt",
+    "ground_truth_chunks": [
+      "app/telemetry/tracer.py",
+      "evals/runners/offline_runner.py",
+      "STT WER %",
+      "Tool Selection Accuracy %",
+      "Avg Time-to-First-Audio (TTFA)"
+    ]
+  }
+]
