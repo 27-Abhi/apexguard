@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="ApexGuard Phase 3: Empirical RAG & LLM Evaluation Platform",
+    description="ApexGuard Phase 4: Production LLM Gateway Core",
     version="3.0.0"
 )
 
@@ -21,30 +21,15 @@ os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 # Register API routers
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-
-# ─── Request Lifecycle Middleware ───────────────────────────────────────────
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start = time.time()
-    method = request.method
-    path = request.url.path
-
-    logger.info(f"⇒ {method} {path}")
-
-    response = await call_next(request)
-
-    elapsed_ms = round((time.time() - start) * 1000, 2)
-    status = response.status_code
-    logger.info(f"⇐ {method} {path} → {status} ({elapsed_ms}ms)")
-
-    return response
+from app.core.middleware import setup_middlewares
+setup_middlewares(app)
 
 
 # ─── Startup Event ──────────────────────────────────────────────────────────
 @app.on_event("startup")
 def startup_banner():
     logger.info("=" * 60)
-    logger.info("🛡️  ApexGuard RAG Gateway — Phase 3 (Empirical Evaluation)")
+    logger.info("🛡️  ApexGuard RAG Gateway — Phase 4 (Production Gateway Core)")
     logger.info("=" * 60)
     logger.info(f"Project       : {settings.PROJECT_NAME}")
     logger.info(f"API Prefix    : {settings.API_V1_STR}")
@@ -65,7 +50,7 @@ def health_check():
     return {
         "status": "online",
         "system": "ApexGuard RAG Gateway",
-        "phase": 3,
+        "phase": 4,
         "embedding_model": settings.EMBEDDING_MODEL,
         "qdrant_host": settings.QDRANT_HOST,
         "qdrant_persistent": vector_service.is_persistent,
