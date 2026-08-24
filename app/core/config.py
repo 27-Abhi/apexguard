@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # Upload storage settings
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "data/uploads")
 
+    # Gateway settings (Phase 4)
+    GATEWAY_API_KEY: str = os.getenv("GATEWAY_API_KEY", "sk-apexguard-dev-key")
+    GATEWAY_TIMEOUT_SEC: float = float(os.getenv("GATEWAY_TIMEOUT_SEC", "30.0"))
+    GATEWAY_MAX_RETRIES: int = int(os.getenv("GATEWAY_MAX_RETRIES", "3"))
+
     class Config:
         case_sensitive = True
 
