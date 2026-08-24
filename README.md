@@ -6,7 +6,7 @@ Welcome to **ApexGuard**! This document serves as the complete **Knowledge Trans
 
 ## 📚 1. Knowledge Transfer (KT) Summary: What Has Been Done?
 
-ApexGuard has evolved into a **Phase 3 Empirical RAG & LLM Evaluation Platform**. Below is a comprehensive breakdown grounded directly in the codebase implementation:
+ApexGuard has evolved into a **Phase 4 Production LLM Gateway Core & RAG Platform**. Below is a comprehensive breakdown grounded directly in the codebase implementation:
 
 
 ### 1. Multi-Format Ingestion & Chunking Strategies ([`ingestion_service.py`](file:///C:/Users/abhinav.kuppasad/Downloads/apexguard/app/services/ingestion_service.py))
@@ -114,7 +114,19 @@ Phase 3 introduces an automated evaluation harness to quantitatively benchmark r
 * **Report Artifacts:** Saved automatically in [`docs/eval_reports/`](file:///C:/Users/abhinav.kuppasad/Downloads/apexguard/docs/eval_reports/) as structured JSON and formatted Markdown tables.
 
 
+### 6. Production LLM Gateway Core ([`gateway.py`](file:///C:/Users/abhinav.kuppasad/Downloads/apexguard/app/api/v1/endpoints/gateway.py) & [`middleware.py`](file:///C:/Users/abhinav.kuppasad/Downloads/apexguard/app/core/middleware.py))
+
+Phase 4 introduces enterprise gateway features to securely and reliably proxy requests to underlying LLM providers (e.g., Ollama).
+
+#### Gateway Features:
+1. **Request Tracing:** Assigns and tracks a unique `X-Request-ID` across logs and responses via `RequestCorrelationMiddleware`.
+2. **Authentication:** Secures the gateway endpoints with Bearer Token authentication.
+3. **Rate Limiting:** Enforces token-bucket rate limits (e.g., 10 req/min) using `slowapi` to prevent abuse.
+4. **Resiliency:** Implements exponential backoff and retry policies using `tenacity` for transient upstream failures (e.g., HTTP 429/503).
+5. **SSE Streaming:** Supports OpenAI-compatible Server-Sent Events (SSE) streaming for real-time token generation (`stream=True`).
+
 ---
+
 
 ## 🏗️ 2. Architectural Pipeline Flow
 
@@ -235,6 +247,7 @@ apexguard/
 | `POST` | `/api/v1/query` | Execute RAG pipeline (Retrieval + RRF Fusion + FlashRank + LLM generation) |
 | `GET` | `/api/v1/documents` | Inspect and filter stored vector chunks in Qdrant |
 | `POST` | `/api/v1/eval/run` | Execute Phase 3 automated empirical evaluation harness (`dense` vs `hybrid` vs `hybrid_reranked`) |
+| `POST` | `/api/v1/gateway/chat/completions` | Execute OpenAI-compatible LLM Gateway with Server-Sent Events (SSE) streaming and rate limits |
 
 
 ---
