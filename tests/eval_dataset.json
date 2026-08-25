@@ -1,63 +1,539 @@
 [
   {
     "id": "eval_001",
-    "question": "What core components and loops make up the VoiceBotRelay call flow?",
-    "expected_answer": "VoiceBotRelay runs five concurrent async loops: audio ingestion, process transcripts, bot orchestration via WebSocket, audio streaming out to Twilio, and silence monitoring.",
-    "ground_truth_doc": "EVAL pipeline.txt",
+    "question": "What is VoiceBotRelay and what primary workflow does it implement?",
+    "expected_answer": "VoiceBotRelay is a real-time conversational AI voice pipeline that turns audio input into a processed speech-to-text, banking-bot response, and text-to-speech output flow. The core pipeline is Audio Input → DSP → STT → BankingBot → TTS → Client.",
+    "ground_truth_doc": "README.md",
     "ground_truth_chunks": [
-      "Launch 4 Concurrent Async Loops",
-      "receive_from_twilio_loop",
-      "process_transcripts_loop",
-      "send_to_twilio_loop",
-      "monitor_silence_loop"
+      "Audio Input → DSP → STT → BankingBot → TTS → Client",
+      "Real-time Conversational AI Voice Pipeline",
+      "bridges Twilio Voice WebSockets to a Banking Bot"
     ]
   },
   {
     "id": "eval_002",
-    "question": "What metrics are included in the deterministic evaluation suite for voice AI?",
-    "expected_answer": "Deterministic metrics include STT Word Error Rate (WER) and Character Error Rate (CER), Tool Selection Accuracy, Tool Argument Schema Validity, Time-To-First-Audio (TTFA), End-to-End Latency, and Barge-in Success Rate.",
-    "ground_truth_doc": "EVAL pipeline.txt",
+    "question": "What are the main features in VoiceBotRelay?",
+    "expected_answer": "It provides Twilio Voice integration through WebSockets, a DSP pipeline for audio cleaning, streaming LLM responses from a banking bot, TTS with failover to Coqui servers, call recording to WAV and MinIO, JWT auth, and GPU acceleration for Whisper STT and Silero VAD.",
+    "ground_truth_doc": "README.md",
     "ground_truth_chunks": [
-      "STT WER / CER",
-      "Tool Selection Accuracy",
-      "Time-to-First-Audio (TTFA)",
-      "Barge-in Success Rate"
+      "Twilio Voice Integration",
+      "DSP Pipeline",
+      "TTS with Failover",
+      "JWT Auth",
+      "GPU Acceleration"
     ]
   },
   {
     "id": "eval_003",
-    "question": "What evaluation insertion points and telemetry data are captured during STT and Conductor phases?",
-    "expected_answer": "STT captures stt_start_ts, stt_end_ts, and transcript text from process_transcripts_loop. Conductor worker records TTFT, TTS latency, sentence text, and filler events.",
-    "ground_truth_doc": "EVAL pipeline.txt",
+    "question": "What are the prerequisites for running VoiceBotRelay?",
+    "expected_answer": "The project requires Python 3.13, Docker and Docker Compose for container deployments, MinIO for recording storage, and a Coqui/Kokoro TTS server running on port 5009 with optional backup on 5010. CUDA 12.4.1 is recommended for GPU inference.",
+    "ground_truth_doc": "README.md",
     "ground_truth_chunks": [
-      "Capture stt_start_ts, stt_end_ts, text",
-      "Record TTFT, TTS latency, sentence text, filler events"
+      "Python | 3.13",
+      "CUDA (optional) | 12.4.1",
+      "Coqui/Kokoro TTS server",
+      "MinIO"
     ]
   },
   {
     "id": "eval_004",
-    "question": "What is the recommended trace schema for VoiceBotRelay evaluations?",
-    "expected_answer": "The trace schema contains trace_id, call_sid, conversation_id, start_time, and turn details covering stt, llm, tts, voice_ux, and handoff stats.",
-    "ground_truth_doc": "EVAL pipeline.txt",
+    "question": "How do you start the application locally?",
+    "expected_answer": "Start the service by creating a virtual environment, installing dependencies from requirements.txt, then running python run_service.py. The app listens on http://0.0.0.0:7867.",
+    "ground_truth_doc": "README.md",
     "ground_truth_chunks": [
-      "trace_id",
-      "call_sid",
-      "user_speech_start_ts",
-      "first_chunk_latency_ms",
-      "time_to_first_audio_ms"
+      "python run_service.py",
+      "http://0.0.0.0:7867",
+      "pip install -r requirements.txt"
     ]
   },
   {
     "id": "eval_005",
-    "question": "What are the key steps in the MVP Eval Pipeline implementation?",
-    "expected_answer": "The MVP eval pipeline requires a ConversationTracer class in app/telemetry/tracer.py and an offline runner in evals/runners/offline_runner.py measuring STT WER %, Tool Selection Accuracy %, TTFA, and Task Success %.",
-    "ground_truth_doc": "EVAL pipeline.txt",
+    "question": "How do you run the project with Docker Compose?",
+    "expected_answer": "Use docker compose build --no-cache to build the services, then docker compose up -d to start them. The compose file starts the FastAPI app and MinIO, and logs can be viewed with docker compose logs -f convoai-be.",
+    "ground_truth_doc": "README.md",
     "ground_truth_chunks": [
-      "app/telemetry/tracer.py",
-      "evals/runners/offline_runner.py",
-      "STT WER %",
-      "Tool Selection Accuracy %",
-      "Avg Time-to-First-Audio (TTFA)"
+      "docker compose build --no-cache",
+      "docker compose up -d",
+      "docker compose logs -f convoai-be"
+    ]
+  },
+  {
+    "id": "eval_006",
+    "question": "Which environment variables are required for the Banking Bot and security flows?",
+    "expected_answer": "Required settings include BANKING_BOT_API_URL, BANKING_BOT_START_URL, BANKING_BOT_API_KEY, FIXED_VALID_TOKEN, JWT_SECRET, MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, and MINIO_BUCKET. These values are used for backend connectivity, authentication, and recording storage.",
+    "ground_truth_doc": "README.md",
+    "ground_truth_chunks": [
+      "BANKING_BOT_API_URL",
+      "BANKING_BOT_API_KEY",
+      "FIXED_VALID_TOKEN",
+      "JWT_SECRET",
+      "MINIO_BUCKET"
+    ]
+  },
+  {
+    "id": "eval_007",
+    "question": "What is the structure of the application codebase?",
+    "expected_answer": "The project is organized into app, core, schemas, services, and API route groups under app/api/v1. The app includes endpoint modules, stream handling, schemas, and service layers such as turn-taking, audio processing, and recording management.",
+    "ground_truth_doc": "README.md",
+    "ground_truth_chunks": [
+      "app/api/v1/",
+      "app/core/",
+      "app/services/",
+      "app/schemas/"
+    ]
+  },
+  {
+    "id": "eval_008",
+    "question": "What are the important aspects of the API root and base URL?",
+    "expected_answer": "VoiceBotRelay exposes APIs under the root path /convaivoice as the effective public base URL. Swagger UI is available at /convaivoice/docs, and the runtime routes include health, call-count, recordings, and the /media-stream WebSocket endpoint.",
+    "ground_truth_doc": "API_DOCUMENTATION.md",
+    "ground_truth_chunks": [
+      "App root path: /convaivoice",
+      "Swagger UI (runtime): /convaivoice/docs",
+      "WebSocket API"
+    ]
+  },
+  {
+    "id": "eval_009",
+    "question": "How does WebSocket authentication work in VoiceBotRelay?",
+    "expected_answer": "Authentication is validated during the initial start event. The server accepts token values from start.client_state or start.customParameters.token, and validates either a configured fixed token or a JWT signed with HS256 using JWT_SECRET. If auth is not completed before the timeout, the socket closes with code 1008.",
+    "ground_truth_doc": "API_DOCUMENTATION.md",
+    "ground_truth_chunks": [
+      "Authentication is validated during the initial start event",
+      "start.customParameters.token",
+      "JWT signed with HS256",
+      "WebSocket is closed with code 1008"
+    ]
+  },
+  {
+    "id": "eval_010",
+    "question": "What token sources are accepted during the WebSocket start handshake?",
+    "expected_answer": "The service reads the token from Base64-encoded JSON stored in start.client_state or start.clientState, or from start.customParameters.token. It then validates it against the configured fixed token or a JWT signed with the JWT secret.",
+    "ground_truth_doc": "API_DOCUMENTATION.md",
+    "ground_truth_chunks": [
+      "start.client_state",
+      "start.clientState",
+      "start.customParameters.token",
+      "verify_token"
+    ]
+  },
+  {
+    "id": "eval_011",
+    "question": "What HTTP endpoints are defined and what are their purposes?",
+    "expected_answer":"The service exposes GET /health for liveness checks, GET /call-count for active WebSocket session counts, GET /recordings for listing recording metadata, and GET /recordings/{path} for streaming a WAV file from object storage.",
+    "ground_truth_doc": "API_DOCUMENTATION.md",
+    "ground_truth_chunks": [
+      "GET /health",
+      "GET /call-count",
+      "GET /recordings",
+      "GET /recordings/{path}"
+    ]
+  },
+  {
+    "id": "eval_012",
+    "question": "What is the expected health check response from the service?",
+    "expected_answer": "The /health endpoint returns an HTTP 200 OK and a JSON payload such as {\"status\": \"ok\"}. This is used as a liveness check and is available without authentication.",
+    "ground_truth_doc": "API_DOCUMENTATION.md",
+    "ground_truth_chunks": [
+      "GET /health",
+      "Response 200 OK",
+      "{ \"status\": \"ok\" }"
+    ]
+  },
+  {
+    "id": "eval_013",
+    "question": "What data does the /call-count endpoint return?",
+    "expected_answer": "The endpoint returns the number of currently active WebSocket sessions in the service, typically as JSON like {\"call_count\": 2}. It is a lightweight operational health indicator.",
+    "ground_truth_doc": "API_DOCUMENTATION.md",
+    "ground_truth_chunks": [
+      "call_count",
+      "number of currently active WebSocket sessions",
+      "GET /call-count"
+    ]
+  },
+  {
+    "id": "eval_014",
+    "question": "What does the recording listing endpoint provide?",
+    "expected_answer": "GET /recordings returns a list of recording metadata objects from the configured MinIO bucket, including keys, size values, and uploaded_at timestamps for each recording entry.",
+    "ground_truth_doc": "API_DOCUMENTATION.md",
+    "ground_truth_chunks": [
+      "Returns metadata for objects in configured MinIO bucket",
+      "uploaded_at",
+      "recordings"
+    ]
+  },
+  {
+    "id": "eval_015",
+    "question": "What audio encoding is expected for Twilio media payloads?",
+    "expected_answer": "The WebSocket audio payloads use mu-law (G.711), 8kHz, mono, base64-encoded payloads in the media events. The server internally converts the incoming audio to PCM for DSP and STT processing.",
+    "ground_truth_doc": "API_DOCUMENTATION.md",
+    "ground_truth_chunks": [
+      "mu-law (G.711)",
+      "8kHz",
+      "base64-mulaw-8khz",
+      "PCM"
+    ]
+  },
+  {
+    "id": "eval_016",
+    "question": "What client events are used in the WebSocket protocol?",
+    "expected_answer": "The client sends connected, start, media, mark, and stop events. The start event bootstraps the session and auth, media carries caller audio, mark acknowledges playback, and stop ends the session.",
+    "ground_truth_doc": "API_DOCUMENTATION.md",
+    "ground_truth_chunks": [
+      "connected",
+      "start",
+      "media",
+      "mark",
+      "stop"
+    ]
+  },
+  {
+    "id": "eval_017",
+    "question": "What server events can the client receive over the WebSocket?",
+    "expected_answer": "The server can send media events containing synthesized audio payloads, mark frames for playback tracking, and clear events to interrupt or clear the playback buffer.",
+    "ground_truth_doc": "API_DOCUMENTATION.md",
+    "ground_truth_chunks": [
+      "media",
+      "mark",
+      "clear"
+    ]
+  },
+  {
+    "id": "eval_018",
+    "question": "What are the infrastructure components used by the deployment?",
+    "expected_answer": "The deployment relies on a self-hosted Linux GPU server, Docker + Docker Compose, a self-hosted MinIO object store, and Coqui TTS host processes on ports 5009 and optionally 5010. The app runs as a Docker container and uses the host network to reach the TTS server.",
+    "ground_truth_doc": "INFRA_ACCESS.md",
+    "ground_truth_chunks": [
+      "Self-hosted Linux (GPU)",
+      "Docker + Docker Compose",
+      "MinIO (self-hosted)",
+      "Coqui TTS"
+    ]
+  },
+  {
+    "id": "eval_019",
+    "question": "What server access and deployment details are documented?",
+    "expected_answer": "The service is deployed on a self-hosted GPU server accessed over SSH, with MinIO console available on port 9001 and credentials in .env. There is no relational database; call data is primarily persisted in MinIO and optionally local recordings folders.",
+    "ground_truth_doc": "INFRA_ACCESS.md",
+    "ground_truth_chunks": [
+      "SSH",
+      "MinIO Console",
+      "No relational database",
+      "MinIO (call recordings)"
+    ]
+  },
+  {
+    "id": "eval_020",
+    "question": "How is the application deployed for the first time?",
+    "expected_answer": "The first-time deployment flow is SSH to the server, clone the repo, configure .env from .env.example, run docker compose up --build -d, and then verify the health endpoint with curl http://localhost:7867/convaivoice/health.",
+    "ground_truth_doc": "INFRA_ACCESS.md",
+    "ground_truth_chunks": [
+      "ssh user@<server-ip>",
+      "cp .env.example .env",
+      "docker compose up --build -d",
+      "curl http://localhost:7867/convaivoice/health"
+    ]
+  },
+  {
+    "id": "eval_021",
+    "question": "What is the app update procedure and rollback pattern?",
+    "expected_answer": "To update the app, pull the latest code and rebuild with docker compose up --build -d. For rollback, check out a previous commit hash and repeat the same build-and-start sequence, then verify health and logs.",
+    "ground_truth_doc": "INFRA_ACCESS.md",
+    "ground_truth_chunks": [
+      "git pull origin main",
+      "docker compose up --build -d",
+      "git checkout <previous-commit-hash>"
+    ]
+  },
+  {
+    "id": "eval_022",
+    "question": "How do environment settings vary between development and production?",
+    "expected_answer": "In development versus production, the main differences are that production requires MINIO_SECURE=true, uses CUDA settings, and keeps other operating defaults like LOCAL_SAVE=false and ENABLE_DSP=false. The support matrix also calls out GPU versus CPU Whisper model sizing.",
+    "ground_truth_doc": "INFRA_ACCESS.md",
+    "ground_truth_chunks": [
+      "MINIO_SECURE",
+      "Development | Production",
+      "WHISPER_MODEL_SIZE",
+      "ENABLE_DSP"
+    ]
+  },
+  {
+    "id": "eval_023",
+    "question": "What monitoring and health checks should operators run?",
+    "expected_answer": "Operators should check the app health endpoint, the active call count endpoint, Docker Compose container status, and MinIO health on port 9000. The standard commands are curl against /health and /call-count, and docker compose ps plus docker compose logs -f convoai-be.",
+    "ground_truth_doc": "INFRA_ACCESS.md",
+    "ground_truth_chunks": [
+      "curl https://<public-url>/convaivoice/health",
+      "curl https://<public-url>/convaivoice/call-count",
+      "docker compose ps",
+      "curl http://localhost:9000/minio/health/live"
+    ]
+  },
+  {
+    "id": "eval_024",
+    "question": "What scaling considerations are mentioned for the current deployment?",
+    "expected_answer": "The system is currently single-instance and single-GPU. To scale vertically, increase GPU VRAM or model size; to scale horizontally, use sticky sessions or externalise state to Redis. TTS can be scaled by adding more Coqui instances and MinIO can be swapped with S3 with minimal code changes.",
+    "ground_truth_doc": "INFRA_ACCESS.md",
+    "ground_truth_chunks": [
+      "single-instance, single-GPU",
+      "sticky sessions",
+      "Redis",
+      "MinIO can be replaced with AWS S3"
+    ]
+  },
+  {
+    "id": "eval_025",
+    "question": "What backup strategy is recommended for MinIO and app configuration?",
+    "expected_answer": "Back up the MinIO Docker volume and the .env file securely, and store application code in git as the primary source of truth. A volume snapshot or host directory backup should be regular, while .env remains in an encrypted secret store.",
+    "ground_truth_doc": "INFRA_ACCESS.md",
+    "ground_truth_chunks": [
+      "MinIO Docker volume",
+      ".env secrets",
+      "Application code",
+      "Git"
+    ]
+  },
+  {
+    "id": "eval_026",
+    "question": "What are the branch naming and merge practices in the repo?",
+    "expected_answer": "The branch strategy uses main for production, plus feature branches such as feature/v1/api, feature/v1/core, feature/v1/schemas, and features/v1/services. The merge policy requires a pull request with review, and the lead reviewer is required.",
+    "ground_truth_doc": "INFRA_ACCESS.md",
+    "ground_truth_chunks": [
+      "main",
+      "feature/v1/api",
+      "feature/v1/core",
+      "Pull Request"
+    ]
+  },
+  {
+    "id": "eval_027",
+    "question": "What are the first steps in the 3:00 AM quick triage procedure?",
+    "expected_answer": "The first checks are docker compose -p voice-bot-relay ps to view service state and docker compose -p voice-bot-relay logs --tail 200 convoai-be and minio to inspect recent runtime and storage issues. After that, the operator runs curl health and call-count checks.",
+    "ground_truth_doc": "OPERATIONS_MANUAL.md",
+    "ground_truth_chunks": [
+      "docker compose -p voice-bot-relay ps",
+      "docker compose -p voice-bot-relay logs --tail 200 convoai-be",
+      "curl -fsS http://localhost:7867/health",
+      "curl -fsS http://localhost:7867/call-count"
+    ]
+  },
+  {
+    "id": "eval_028",
+    "question": "How do you validate the app is healthy during triage?",
+    "expected_answer": "Use curl -fsS http://localhost:7867/health to confirm the API is reachable and returns a healthy payload, and curl -fsS http://localhost:7867/call-count to inspect active call sessions. If behind a reverse proxy, test the proxied /convaivoice endpoints as well.",
+    "ground_truth_doc": "OPERATIONS_MANUAL.md",
+    "ground_truth_chunks": [
+      "curl -fsS http://localhost:7867/health",
+      "curl -fsS http://localhost:7867/call-count",
+      "/convaivoice/health",
+      "/convaivoice/call-count"
+    ]
+  },
+  {
+    "id": "eval_029",
+    "question": "What is the hotfix deployment flow?",
+    "expected_answer": "The hotfix process fetches remote refs, checks out the hotfix branch or commit, rebuilds the Docker images with docker compose build --no-cache, and restarts the stack with docker compose up -d. After deployment, validate container state and health endpoint.",
+    "ground_truth_doc": "OPERATIONS_MANUAL.md",
+    "ground_truth_chunks": [
+      "git fetch origin",
+      "git checkout <hotfix-branch-or-commit>",
+      "docker compose -p voice-bot-relay build --no-cache",
+      "docker compose -p voice-bot-relay up -d"
+    ]
+  },
+  {
+    "id": "eval_030",
+    "question": "How should a bad hotfix be rolled back?",
+    "expected_answer": "Revert to the last known good commit with git checkout <last-known-good-commit>, rebuild the project with docker compose build --no-cache, and restart the services with docker compose up -d. Immediately rerun the validation checks for health and logs.",
+    "ground_truth_doc": "OPERATIONS_MANUAL.md",
+    "ground_truth_chunks": [
+      "git checkout <last-known-good-commit>",
+      "docker compose -p voice-bot-relay build --no-cache",
+      "docker compose -p voice-bot-relay up -d",
+      "Re-run validation checks"
+    ]
+  },
+  {
+    "id": "eval_031",
+    "question": "What log markers are useful in incident triage?",
+    "expected_answer": "The manual highlights markers such as [AUTH], [SESSION], [STT], [TTS], [QC], [CLEANUP], [CONDUCTOR], [LEDGER], and MinIO errors. These allow operations to isolate token failures, session issues, transcription problems, and playback or cleanup anomalies quickly.",
+    "ground_truth_doc": "OPERATIONS_MANUAL.md",
+    "ground_truth_chunks": [
+      "[AUTH]",
+      "[SESSION]",
+      "[STT]",
+      "[TTS]",
+      "[CONDUCTOR]",
+      "[LEDGER]"
+    ]
+  },
+  {
+    "id": "eval_032",
+    "question": "What are common incident signals in the operations manual?",
+    "expected_answer": "Common signals include repeated code=1008 WebSocket closes caused by auth mismatches, frequent [SESSION] Initialization failed messages due to backend availability, MinIO connection errors, and Fatal error during startup from model or dependency failures.",
+    "ground_truth_doc": "OPERATIONS_MANUAL.md",
+    "ground_truth_chunks": [
+      "code=1008",
+      "[SESSION] Initialization failed",
+      "MinIO Connection Error",
+      "Fatal error during startup"
+    ]
+  },
+  {
+    "id": "eval_033",
+    "question": "How is MinIO data backed up and restored?",
+    "expected_answer": "The backup flow creates a timestamped archive from the voice-bot-relay_minio-data Docker volume using an Alpine tar job, stores it in ./backups, and restores it by stopping the app and extracting the archive back into the volume. The recovery notes warn to avoid copying from HTML-rendered command snippets because hidden tags can corrupt shell commands.",
+    "ground_truth_doc": "OPERATIONS_MANUAL.md",
+    "ground_truth_chunks": [
+      "voice-bot-relay_minio-data",
+      "tar -czf",
+      "docker compose -p voice-bot-relay down",
+      "tar -xzf"
+    ]
+  },
+  {
+    "id": "eval_034",
+    "question": "What secrets and runtime credentials are considered security-sensitive?",
+    "expected_answer": "Security-sensitive variables include BANKING_BOT_API_KEY for the NGAI-API-Key header, JWT_SECRET for HS256 token verification, FIXED_VALID_TOKEN for fixed-token auth, and the MinIO credentials MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_ROOT_USER, and MINIO_ROOT_PASSWORD. These should be handled only through .env or runtime secret injection.",
+    "ground_truth_doc": "SECRETS_CREDS.md",
+    "ground_truth_chunks": [
+      "BANKING_BOT_API_KEY",
+      "JWT_SECRET",
+      "FIXED_VALID_TOKEN",
+      "MINIO_ACCESS_KEY",
+      "MINIO_SECRET_KEY",
+      "MINIO_ROOT_PASSWORD"
+    ]
+  },
+  {
+    "id": "eval_035",
+    "question": "Where are secrets loaded from and what precedence rule applies?",
+    "expected_answer": "Secrets are loaded from the project root .env file when present, with the environment precedence rule that .env values override existing process environment values. Config is read at import time, so restarting the app or container is required for changes to take effect.",
+    "ground_truth_doc": "SECRETS_CREDS.md",
+    "ground_truth_chunks": [
+      ".env",
+      "load_dotenv(dotenv_path=ENV_FILE, override=True)",
+      ".env values override existing process environment values",
+      "restart"
+    ]
+  },
+  {
+    "id": "eval_036",
+    "question": "What is the required rule about real credentials in code and commit history?",
+    "expected_answer": "Real credentials must never be stored in committed code, docs, compose manifests, tests, logs, or commit messages. Secrets must live only in runtime injection points and a secure secret manager.",
+    "ground_truth_doc": "SECRETS_CREDS.md",
+    "ground_truth_chunks": [
+      "Never store real credentials",
+      "must not be committed",
+      "secret manager"
+    ]
+  },
+  {
+    "id": "eval_037",
+    "question": "What is the GDPR readiness assessment?",
+    "expected_answer": "The project is considered GDPR-ready only at a partial to low level. It has some access control and logging basics, but gaps remain in consent handling, data subject rights, retention policies, minimization, token hardening, and encryption-at-rest guarantees.",
+    "ground_truth_doc": "SECURITY__COMPLIANCE.md",
+    "ground_truth_chunks": [
+      "GDPR readiness: partial to low",
+      "No explicit in-app consent capture",
+      "No built-in APIs/process for access, deletion, rectification",
+      "JWT expiration is not enforced"
+    ]
+  },
+  {
+    "id": "eval_038",
+    "question": "What are the main HIPAA concerns documented in the assessment?",
+    "expected_answer": "The service is not HIPAA-ready by default. The assessment notes incomplete access control, basic audit controls, missing encryption assurance at app level, insufficient minimum-necessary and redaction controls, and the absence of the broader administrative controls required for PHI workloads.",
+    "ground_truth_doc": "SECURITY__COMPLIANCE.md",
+    "ground_truth_chunks": [
+      "HIPAA readiness: low",
+      "Access control and identity governance are incomplete",
+      "minimum necessary and redaction strategies are not comprehensively implemented",
+      "BAA"
+    ]
+  },
+  {
+    "id": "eval_039",
+    "question": "What are the priority P0 hardening steps recommended by the compliance review?",
+    "expected_answer": "The immediate actions are to protect /recordings and /recordings/{path} with authentication, enforce JWT expiry validation with short token TTLs, restrict CORS to approved origins, and stop logging raw transcripts and sensitive payload content in production mode.",
+    "ground_truth_doc": "SECURITY__COMPLIANCE.md",
+    "ground_truth_chunks": [
+      "Protect /recordings",
+      "verify_exp=True",
+      "Restrict CORS",
+      "Stop logging raw transcript"
+    ]
+  },
+  {
+    "id": "eval_040",
+    "question": "What are the P1 and P2 compliance actions recommended for a more mature security baseline?",
+    "expected_answer": "P1 includes enforcing TLS/WSS and MinIO TLS, encryption at rest, retention policies, and role-based access. P2 adds data subject request workflows, immutable audit trails, compliance runbooks, and legal controls such as DPA or BAA arrangements.",
+    "ground_truth_doc": "SECURITY__COMPLIANCE.md",
+    "ground_truth_chunks": [
+      "TLS/WSS",
+      "encryption at rest",
+      "retention policy",
+      "data subject request workflows"
+    ]
+  },
+  {
+    "id": "eval_041",
+    "question": "What is the end-to-end call flow described in the system architecture?",
+    "expected_answer": "The call starts with the caller reaching Twilio, which opens a WebSocket and streams mu-law audio to the WebSocket handler. The handler starts a banking conversation, raw audio flows through DSP and STT, the transcript goes to the conductor, the LLM response is synthesized with TTS, and the final audio plus recording artifacts are sent to Twilio and MinIO.",
+    "ground_truth_doc": "SYSTEM_ARCHITECTURE.md",
+    "ground_truth_chunks": [
+      "Caller → Twilio",
+      "Twilio → WebSocket Handler",
+      "DSP → VAD → Whisper",
+      "Recording Manager → MinIO or S3"
+    ]
+  },
+  {
+    "id": "eval_042",
+    "question": "What does the conductor do during a live call?",
+    "expected_answer": "The conductor orchestrates a single call session, manages interrupt logic for barge-in, owns the bounded output queue for audio playback, tracks mark acknowledgements in the playback ledger, and uses a generation ID to avoid race conditions and stale cancellations.",
+    "ground_truth_doc": "SYSTEM_ARCHITECTURE.md",
+    "ground_truth_chunks": [
+      "Interrupt logic",
+      "Audio output queue",
+      "playback ledger",
+      "generation ID"
+    ]
+  },
+  {
+    "id": "eval_043",
+    "question": "What processing happens in the DSP pipeline before audio reaches Whisper?",
+    "expected_answer": "Each 20 ms audio chunk is mu-law decoded into PCM16, filtered through a Butterworth bandpass filter, denoised with FFT spectral subtraction, gated by RMS noise threshold logic, limited with tanh soft clipping, and resampled from 8kHz to 16kHz. DSP can be disabled with ENABLE_DSP=False.",
+    "ground_truth_doc": "SYSTEM_ARCHITECTURE.md",
+    "ground_truth_chunks": [
+      "mu-law decode → PCM16",
+      "Butterworth bandpass filter",
+      "FFT spectral subtraction",
+      "ENABLE_DSP=False"
+    ]
+  },
+  {
+    "id": "eval_044",
+    "question": "What is the role of the STT service and VAD configuration?",
+    "expected_answer": "The STT service uses faster-whisper with CTranslate2 and Silero VAD to segment speech before transcription. It supports configurable model size, default compute type int8, and includes a circuit breaker to recover from VAD failure events.",
+    "ground_truth_doc": "SYSTEM_ARCHITECTURE.md",
+    "ground_truth_chunks": [
+      "faster-whisper",
+      "Silero VAD",
+      "WHISPER_MODEL_SIZE",
+      "circuit breaker"
+    ]
+  },
+  {
+    "id": "eval_045",
+    "question": "What components are present in the deployment topology and how do they connect?",
+    "expected_answer": "The deployment topology includes the Dockerized FastAPI app on port 7867, a MinIO container on ports 9000 and 9001, and Coqui TTS host processes on ports 5009 and 5010. Twilio is attached to the public app port, while the app reaches external services via the host network and host.docker.internal mapping.",
+    "ground_truth_doc": "SYSTEM_ARCHITECTURE.md",
+    "ground_truth_chunks": [
+      "Docker: convoai-be  (port 7867)",
+      "Docker: minio       (port 9000 / 9001)",
+      "Coqui TTS primary  (port 5009)",
+      "host.docker.internal"
     ]
   }
 ]
