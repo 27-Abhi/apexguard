@@ -130,7 +130,7 @@ def verify_gateway_token(credentials: HTTPAuthorizationCredentials = Depends(sec
     return credentials.credentials
 
 @router.post("/chat/completions", dependencies=[Depends(verify_gateway_token)])
-@limiter.limit("10/minute")
+@limiter.limit(settings.GATEWAY_RATE_LIMIT)
 async def chat_completions(request: Request, body: ChatCompletionRequest):
     """
     OpenAI compatible chat completions endpoint.

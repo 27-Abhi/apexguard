@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     GATEWAY_API_KEY: str = os.getenv("GATEWAY_API_KEY", "sk-apexguard-dev-key")
     GATEWAY_TIMEOUT_SEC: float = float(os.getenv("GATEWAY_TIMEOUT_SEC", "30.0"))
     GATEWAY_MAX_RETRIES: int = int(os.getenv("GATEWAY_MAX_RETRIES", "3"))
+    GATEWAY_RATE_LIMIT: str = os.getenv("GATEWAY_RATE_LIMIT", "10/minute")
 
     class Config:
         case_sensitive = True
