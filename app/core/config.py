@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     GATEWAY_MAX_RETRIES: int = int(os.getenv("GATEWAY_MAX_RETRIES", "3"))
     GATEWAY_RATE_LIMIT: str = os.getenv("GATEWAY_RATE_LIMIT", "10/minute")
 
+    # Intelligent Routing settings (Phase 5)
+    ROUTER_FAST_MODEL: str = os.getenv("ROUTER_FAST_MODEL", "qwen3:0.6b")
+    ROUTER_REASONING_MODEL: str = os.getenv("ROUTER_REASONING_MODEL", "gemma3:1b")
+    ROUTER_DEFAULT_STRATEGY: str = os.getenv("ROUTER_DEFAULT_STRATEGY", "auto")
+    ROUTER_CONFIDENCE_THRESHOLD: float = float(os.getenv("ROUTER_CONFIDENCE_THRESHOLD", "0.60"))
+
     class Config:
         case_sensitive = True
 
