@@ -9,7 +9,7 @@ def test_health_check():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "online"
-    assert data["phase"] == 3
+    assert data["phase"] == 5
 
 def test_ingest_text():
     payload = {

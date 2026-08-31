@@ -89,10 +89,12 @@ Based on industry signals for AI Engineering in 2026, candidates must demonstrat
 - **Deliverable:** Automated benchmark runner script outputting quality telemetry reports.
 
 ### PHASE 4 — Production LLM Gateway Core (~8–10 hrs)
+- **Status:** **Completed & Built**
 - **Features:** Async request processing, SSE streaming, rate limiting, request ID tracing, configurable timeouts, retries, and health checks.
 - **Deliverable:** Resilient FastAPI gateway sitting in front of model providers.
 
 ### PHASE 5 — Intelligent Model Routing (~5–8 hrs)
+- **Status:** **Completed & Built**
 - **Flow:** Query Classifier → Simple Queries (Local/Small Model) vs Complex/Knowledge Queries (RAG / Larger Model).
 - **Deliverable:** Dynamic cost-aware router with empirical benchmarking on cost vs latency vs accuracy.
 

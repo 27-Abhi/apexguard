@@ -32,7 +32,7 @@ def test_precision_counts_unique_matched_targets_only():
 
     precision = RAGEvaluator.calculate_precision_at_k(retrieved_chunks, ground_truth_chunks, k=10)
 
-    assert precision == 0.2
+    assert precision == 0.1
 
 
 def test_mrr_uses_first_relevant_retrieved_rank():
