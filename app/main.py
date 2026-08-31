@@ -11,8 +11,8 @@ logger = get_logger(__name__)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="ApexGuard Phase 4: Production LLM Gateway Core",
-    version="3.0.0"
+    description="ApexGuard Phase 5: Intelligent Model Routing & Production LLM Gateway",
+    version="3.1.0"
 )
 
 # Ensure upload directory exists
@@ -29,14 +29,17 @@ setup_middlewares(app)
 @app.on_event("startup")
 def startup_banner():
     logger.info("=" * 60)
-    logger.info("🛡️  ApexGuard RAG Gateway — Phase 4 (Production Gateway Core)")
+    logger.info("🛡️  ApexGuard Gateway — Phase 5 (Intelligent Model Routing)")
     logger.info("=" * 60)
     logger.info(f"Project       : {settings.PROJECT_NAME}")
     logger.info(f"API Prefix    : {settings.API_V1_STR}")
+    logger.info(f"Fast Model    : {settings.ROUTER_FAST_MODEL}")
+    logger.info(f"Reasoning LLM : {settings.ROUTER_REASONING_MODEL}")
+    logger.info(f"RAG Model     : {settings.OLLAMA_MODEL}")
     logger.info(f"Embedding     : {settings.EMBEDDING_MODEL} (dim={settings.EMBEDDING_DIMENSION})")
     logger.info(f"Qdrant        : {settings.QDRANT_HOST}:{settings.QDRANT_PORT}")
     logger.info(f"Qdrant Status : {'✅ Connected (persistent)' if vector_service.is_persistent else '⚠️  In-Memory (non-persistent)'}")
-    logger.info(f"Ollama        : {settings.OLLAMA_BASE_URL} (model: {settings.OLLAMA_MODEL})")
+    logger.info(f"Ollama        : {settings.OLLAMA_BASE_URL}")
     logger.info(f"Upload Dir    : {settings.UPLOAD_DIR}")
     logger.info("=" * 60)
     logger.info(f"Swagger UI    : http://localhost:8000/docs")
@@ -50,7 +53,9 @@ def health_check():
     return {
         "status": "online",
         "system": "ApexGuard RAG Gateway",
-        "phase": 4,
+        "phase": 5,
+        "fast_model": settings.ROUTER_FAST_MODEL,
+        "reasoning_model": settings.ROUTER_REASONING_MODEL,
         "embedding_model": settings.EMBEDDING_MODEL,
         "qdrant_host": settings.QDRANT_HOST,
         "qdrant_persistent": vector_service.is_persistent,
@@ -313,85 +318,182 @@ def dashboard():
                 </form>
                 <div id="queryResult" class="response-box" style="display:none;"></div>
             </div>
+
+            <div class="card">
+                <h2>3. Intelligent Model Router (Phase 5)</h2>
+                <form id="routerForm">
+                    <div class="form-group">
+                        <label>User Prompt</label>
+                        <input type="text" id="routerPromptInput" placeholder="e.g., 'Hello!', 'What is ApexGuard?', or 'Write a Python binary search'" required />
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Routing Mode / Override</label>
+                            <select id="routerOverrideInput">
+                                <option value="" selected>Auto (Dynamic Intent & Complexity)</option>
+                                <option value="direct_fast">Force Direct Fast LLM</option>
+                                <option value="knowledge_rag">Force Knowledge RAG</option>
+                                <option value="complex_reasoning">Force Complex Reasoning LLM</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button type="button" id="classifyBtn" style="background:#238636;">1. Classify Route (Sub-ms)</button>
+                        <button type="button" id="executeRouteBtn">2. Execute Routed Query</button>
+                    </div>
+                </form>
+                <div id="routerResult" class="response-box" style="display:none;"></div>
+            </div>
         </div>
 
         <script>
-            document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const fileInput = document.getElementById('fileInput');
-                const strategyInput = document.getElementById('strategyInput').value;
-                const chunkSizeInput = document.getElementById('chunkSizeInput').value;
-                const chunkOverlapInput = document.getElementById('chunkOverlapInput').value;
+            document.addEventListener('DOMContentLoaded', () => {
+                const uploadForm = document.getElementById('uploadForm');
+                if (uploadForm) {
+                    uploadForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        const fileInput = document.getElementById('fileInput');
+                        const strategyInput = document.getElementById('strategyInput').value;
+                        const chunkSizeInput = document.getElementById('chunkSizeInput').value;
+                        const chunkOverlapInput = document.getElementById('chunkOverlapInput').value;
 
-                const formData = new FormData();
-                formData.append('file', fileInput.files[0]);
-                formData.append('chunk_strategy', strategyInput);
-                formData.append('chunk_size', chunkSizeInput);
-                formData.append('chunk_overlap', chunkOverlapInput);
+                        const formData = new FormData();
+                        formData.append('file', fileInput.files[0]);
+                        formData.append('chunk_strategy', strategyInput);
+                        formData.append('chunk_size', chunkSizeInput);
+                        formData.append('chunk_overlap', chunkOverlapInput);
 
-                const resBox = document.getElementById('uploadResult');
-                resBox.style.display = 'block';
-                resBox.innerText = `Ingesting with [${strategyInput}] chunking...`;
+                        const resBox = document.getElementById('uploadResult');
+                        resBox.style.display = 'block';
+                        resBox.innerText = `Ingesting with [${strategyInput}] chunking...`;
 
-                try {
-                    const res = await fetch('/api/v1/ingest/file', {
-                        method: 'POST',
-                        body: formData
+                        try {
+                            const res = await fetch('/api/v1/ingest/file', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            const data = await res.json();
+                            resBox.innerText = JSON.stringify(data, null, 2);
+                        } catch (err) {
+                            resBox.innerText = 'Error: ' + err.message;
+                        }
                     });
-                    const data = await res.json();
-                    resBox.innerText = JSON.stringify(data, null, 2);
-                } catch (err) {
-                    resBox.innerText = 'Error: ' + err.message;
                 }
-            });
 
-            document.querySelectorAll('input[name="queryMode"]').forEach((input) => {
-                input.addEventListener('change', () => {
-                    const mode = document.querySelector('input[name="queryMode"]:checked').value;
-                    document.getElementById('hybridControls').classList.toggle('hidden', mode !== 'hybrid');
+                document.querySelectorAll('input[name="queryMode"]').forEach((input) => {
+                    input.addEventListener('change', () => {
+                        const mode = document.querySelector('input[name="queryMode"]:checked').value;
+                        document.getElementById('hybridControls').classList.toggle('hidden', mode !== 'hybrid');
+                    });
                 });
-            });
 
-            document.getElementById('queryForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const query = document.getElementById('queryInput').value;
-                const mode = document.querySelector('input[name="queryMode"]:checked').value;
-                const topK = Number(document.getElementById('topKInput').value || 3);
-                const filenameFilter = document.getElementById('filenameFilterInput').value.trim();
-                const resBox = document.getElementById('queryResult');
-                resBox.style.display = 'block';
-                resBox.innerText = mode === 'hybrid'
-                    ? 'Running dense + sparse retrieval, fusion, and synthesis...'
-                    : 'Running dense retrieval and synthesis...';
+                const queryForm = document.getElementById('queryForm');
+                if (queryForm) {
+                    queryForm.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        const query = document.getElementById('queryInput').value;
+                        const mode = document.querySelector('input[name="queryMode"]:checked').value;
+                        const topK = Number(document.getElementById('topKInput').value || 3);
+                        const filenameFilter = document.getElementById('filenameFilterInput').value.trim();
+                        const resBox = document.getElementById('queryResult');
+                        resBox.style.display = 'block';
+                        resBox.innerText = mode === 'hybrid'
+                            ? 'Running dense + sparse retrieval, fusion, and synthesis...'
+                            : 'Running dense retrieval and synthesis...';
 
-                const requestBody = {
-                    query: query,
-                    top_k: topK
-                };
-                if (filenameFilter) {
-                    requestBody.filename_filter = filenameFilter;
-                }
+                        const requestBody = {
+                            query: query,
+                            top_k: topK
+                        };
+                        if (filenameFilter) {
+                            requestBody.filename_filter = filenameFilter;
+                        }
 
-                let endpoint = '/api/v1/query';
-                if (mode === 'hybrid') {
-                    endpoint = '/api/v1/query/hybrid';
-                    requestBody.fusion_weight = Number(document.getElementById('fusionWeightInput').value || 0.5);
-                    requestBody.enable_rerank = document.getElementById('enableRerankInput').checked;
-                    requestBody.rrf_candidate_k = Number(document.getElementById('rrfCandidateKInput').value || 10);
-                    requestBody.dense_candidate_k = Number(document.getElementById('denseCandidateKInput').value || 20);
-                    requestBody.sparse_candidate_k = Number(document.getElementById('sparseCandidateKInput').value || 20);
-                }
+                        let endpoint = '/api/v1/query';
+                        if (mode === 'hybrid') {
+                            endpoint = '/api/v1/query/hybrid';
+                            requestBody.fusion_weight = Number(document.getElementById('fusionWeightInput').value || 0.5);
+                            requestBody.enable_rerank = document.getElementById('enableRerankInput').checked;
+                            requestBody.rrf_candidate_k = Number(document.getElementById('rrfCandidateKInput').value || 10);
+                            requestBody.dense_candidate_k = Number(document.getElementById('denseCandidateKInput').value || 20);
+                            requestBody.sparse_candidate_k = Number(document.getElementById('sparseCandidateKInput').value || 20);
+                        }
 
-                try {
-                    const res = await fetch(endpoint, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(requestBody)
+                        try {
+                            const res = await fetch(endpoint, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(requestBody)
+                            });
+                            const data = await res.json();
+                            resBox.innerText = JSON.stringify(data, null, 2);
+                        } catch (err) {
+                            resBox.innerText = 'Error: ' + err.message;
+                        }
                     });
-                    const data = await res.json();
-                    resBox.innerText = JSON.stringify(data, null, 2);
-                } catch (err) {
-                    resBox.innerText = 'Error: ' + err.message;
+                }
+
+                const classifyBtn = document.getElementById('classifyBtn');
+                if (classifyBtn) {
+                    classifyBtn.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        const query = document.getElementById('routerPromptInput').value.trim();
+                        if (!query) return alert('Please enter a prompt');
+                        const override = document.getElementById('routerOverrideInput').value;
+                        const resBox = document.getElementById('routerResult');
+                        resBox.style.display = 'block';
+                        resBox.innerText = 'Classifying intent & complexity...';
+
+                        const payload = { query };
+                        if (override) payload.override_route = override;
+
+                        try {
+                            const res = await fetch('/api/v1/router/classify', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            const data = await res.json();
+                            resBox.innerText = '🎯 Route Classification Result:\\n' + JSON.stringify(data, null, 2);
+                        } catch (err) {
+                            resBox.innerText = 'Error: ' + err.message;
+                        }
+                    });
+                }
+
+                async function handleRouterExecution(e) {
+                    if (e) e.preventDefault();
+                    const query = document.getElementById('routerPromptInput').value.trim();
+                    if (!query) return alert('Please enter a prompt');
+                    const override = document.getElementById('routerOverrideInput').value;
+                    const resBox = document.getElementById('routerResult');
+                    resBox.style.display = 'block';
+                    resBox.innerText = 'Executing dynamically routed pipeline...';
+
+                    const payload = { query };
+                    if (override) payload.override_route = override;
+
+                    try {
+                        const res = await fetch('/api/v1/router/query', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        const data = await res.json();
+                        resBox.innerText = '⚡ Intelligent Route Execution:\\n' + JSON.stringify(data, null, 2);
+                    } catch (err) {
+                        resBox.innerText = 'Error: ' + err.message;
+                    }
+                }
+
+                const executeRouteBtn = document.getElementById('executeRouteBtn');
+                if (executeRouteBtn) {
+                    executeRouteBtn.addEventListener('click', handleRouterExecution);
+                }
+
+                const routerForm = document.getElementById('routerForm');
+                if (routerForm) {
+                    routerForm.addEventListener('submit', handleRouterExecution);
                 }
             });
         </script>

@@ -135,10 +135,20 @@ async def chat_completions(request: Request, body: ChatCompletionRequest):
     """
     OpenAI compatible chat completions endpoint.
     Protected by Bearer Token Authentication (middleware).
+    Supports model='auto' or 'smart-router' for intelligent dynamic routing.
     """
-    
+    from app.services.router_service import router_service
+
     payload = body.dict()
-    
+    routing_metadata = None
+
+    if body.model.lower() in ("auto", "smart-router"):
+        user_message = next((m.content for m in reversed(body.messages) if m.role == "user"), "")
+        decision = router_service.classify(user_message)
+        payload["model"] = decision.model
+        routing_metadata = decision.dict()
+        logger.info(f"Auto-routed chat request to model '{decision.model}' (reason: {decision.reasoning})")
+
     if body.stream:
         return StreamingResponse(
             call_llm_provider_stream(payload),
@@ -151,11 +161,11 @@ async def chat_completions(request: Request, body: ChatCompletionRequest):
             
             # Format to OpenAI
             import time
-            return {
+            resp_dict = {
                 "id": f"chatcmpl-{int(time.time())}",
                 "object": "chat.completion",
                 "created": int(time.time()),
-                "model": data.get("model", body.model),
+                "model": data.get("model", payload.get("model")),
                 "choices": [{
                     "index": 0,
                     "message": data.get("message", {}),
@@ -167,6 +177,9 @@ async def chat_completions(request: Request, body: ChatCompletionRequest):
                     "total_tokens": data.get("prompt_eval_count", 0) + data.get("eval_count", 0)
                 }
             }
+            if routing_metadata:
+                resp_dict["routing"] = routing_metadata
+            return resp_dict
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=e.response.status_code, detail=f"Provider error: {e.response.text}")
         except Exception as e:

@@ -127,6 +127,26 @@ Phase 4 introduces enterprise gateway features to securely and reliably proxy re
 
 ---
 
+### 7. Intelligent Model Routing & Intent Classification ([`router_service.py`](file:///C:/Users/abhinav.kuppasad/Downloads/apexguard/app/services/router_service.py) & [`router.py`](file:///C:/Users/abhinav.kuppasad/Downloads/apexguard/app/api/v1/endpoints/router.py))
+
+Phase 5 introduces an **Intelligent Model Router** that inspects user queries in sub-millisecond time (< 0.5ms) using a generalized intent and complexity classification engine to dynamically dispatch queries across three optimized execution tiers.
+
+#### 🎯 Dynamic Routing Tiers:
+
+| Route Type (`route`) | Target Model | Complexity | Estimated Latency | Cost Tier | When Triggered / Best For |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`direct_fast`** | `qwen3:0.6b` (or `llama3.2:1b`) | `simple` | **< 150ms** | Free / Local | **Everyday & Conversational:** Greetings, chitchat, persona questions (*"who made you"*), everyday queries (*"WHAT IS THE TIME"*, *"what is the weather"*), basic arithmetic (*"what is 2 + 2"*), text transforms (translate, format, summarize short text). **Zero vector retrieval overhead.** |
+| **`knowledge_rag`** | `qwen3:0.6b` + Hybrid RAG | `moderate` | **300ms – 800ms** | Low | **Domain Knowledge & Documents:** Ingested documentation, architectural questions (*"What is ApexGuard?"*), system configurations (*"Qdrant port"*), or explicit doc queries (*"in the uploaded PDF"*). Executes FastEmbed + BM25 + FlashRank. |
+| **`complex_reasoning`**| `llama3:8b` (or larger LLM) | `complex` | **1s – 4s** | Medium | **Coding, Math & Multi-Step Logic:** Programming (*"write a python function"*), debugging (*"fix the bug in this algorithm"*), system design, mathematical proofs, and step-by-step analytical reasoning. |
+
+#### ⚡ Sub-Millisecond Generalized Classifier:
+* **Zero Overhead:** Evaluates regex pattern groups, keyword densities, and query complexity in `< 0.5ms` without blocking the request pipeline.
+* **Separation of Everyday vs. Domain Inquiries:** General questions like *"WHAT IS THE TIME"* or *"Tell me a joke"* route to `direct_fast` without hitting Qdrant, saving significant vector computation and database latency.
+* **Manual Route Overrides:** Accepts optional `override_route` parameter (`"direct_fast"`, `"knowledge_rag"`, `"complex_reasoning"`) for deterministic routing when required.
+* **OpenAI Gateway Auto-Routing:** The `/api/v1/gateway/chat/completions` endpoint seamlessly supports `model="auto"` or `model="smart-router"`, automatically analyzing the incoming prompt and selecting the best model and execution strategy.
+
+---
+
 
 ## 🏗️ 2. Architectural Pipeline Flow
 
@@ -192,27 +212,37 @@ apexguard/
 │   │   │   ├── ingest.py        # Ingestion API endpoints (Files & Raw Text)
 │   │   │   ├── query.py         # Search & Synthesis API endpoints
 │   │   │   ├── documents.py     # Vector document list/view endpoints
-│   │   │   └── eval.py          # Phase 3 RAG & LLM Evaluation API endpoint
+│   │   │   ├── eval.py          # Phase 3 RAG & LLM Evaluation API endpoint
+│   │   │   ├── gateway.py       # Phase 4 OpenAI-compatible LLM Gateway endpoints
+│   │   │   └── router.py        # Phase 5 Intelligent Query Router endpoints
 │   │   └── router.py            # API V1 Router setup
 │   ├── core/
 │   │   ├── config.py            # Pydantic environment configurations & defaults
-│   │   └── logging.py           # Structured logger configuration
+│   │   ├── logging.py           # Structured logger configuration
+│   │   └── middleware.py        # Request Correlation & Rate Limiting Middleware
 │   ├── interfaces/              # Abstract Base Classes for loose-coupling
 │   ├── schemas/                 # Pydantic Request & Response Data Models
+│   │   ├── ingest.py
+│   │   ├── query.py
+│   │   └── router.py            # Phase 5 Router & Routing Decision Schemas
 │   ├── services/
 │   │   ├── embedding_service.py # FastEmbed local embedding model wrapper
 │   │   ├── ingestion_service.py # Parsers, chunkers, and text extractors
 │   │   ├── llm_service.py       # Ollama LLM integration service
 │   │   ├── rag_service.py       # Retrieval, RRF Fusion, and FlashRank re-ranker
+│   │   ├── router_service.py    # Phase 5 Query Intent & Complexity Router Service
 │   │   └── vector_service.py    # Qdrant client connection and payload indexing
 │   └── main.py                  # FastAPI Application, Middleware & Web Dashboard UI
 ├── docs/
 │   ├── eval_reports/            # Automated JSON & Markdown evaluation reports
+│   ├── MASTER_ROADMAP.md        # 16-Phase Master Development Roadmap
 │   └── PHASE_3_SPEC.md          # Phase 3 Empirical Evaluation Specification
 ├── tests/
 │   ├── eval_dataset.json        # Benchmark dataset (questions, expected answers, ground truth)
 │   ├── run_eval.py              # Phase 3 empirical evaluation execution harness
-│   └── test_rag.py              # Automated pytest unit test suite
+│   ├── test_eval_metrics.py     # Metric unit test suite
+│   ├── test_rag.py              # Automated pytest RAG unit test suite
+│   └── test_router.py           # Phase 5 Router pytest test suite
 ├── Dockerfile                   # Production Docker image blueprint
 ├── docker-compose.yml           # Multi-container orchestration (App + Qdrant)
 ├── requirements.txt             # Python dependencies list
@@ -225,14 +255,16 @@ apexguard/
 
 | Component | Technology | Default Configuration / Model | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Language & Framework** | Python 3.11, FastAPI | `FastAPI v3.0.0` | High-performance async web framework |
+| **Language & Framework** | Python 3.11, FastAPI | `FastAPI v3.1.0` | High-performance async web framework |
 | **Vector DB** | Qdrant | `localhost:6333` (Collection: `apexguard_rag`) | Vector store supporting payload metadata filtering and hybrid retrieval |
 | **Dense Embeddings** | FastEmbed | `BAAI/bge-small-en-v1.5` (384-d) | ONNX local execution embedding pipeline |
 | **Sparse Embeddings** | FastEmbed | `Qdrant/bm25` | Sparse vector term-frequency keyword index |
 | **Re-ranker** | FlashRank | `ms-marco-MiniLM-L-12-v2` | Lightweight neural cross-encoder for score refinement |
 | **Evaluation Harness** | Custom Engine | Precision@K, Recall@K, MRR, Semantic Similarity | Quantitative evaluation of retrieval and generation |
 | **LLM Judge (Eval)** | Ollama | `qwen3.5:2b` | Evaluates accuracy, relevance, and faithfulness of generated answers |
-| **LLM Engine** | Ollama | `qwen3:0.6b` (via `OLLAMA_BASE_URL`) | Local execution of open-weights LLMs |
+| **Fast LLM Model** | Ollama | `qwen3:0.6b` (via `ROUTER_FAST_MODEL`) | Sub-150ms direct generation for general queries |
+| **Reasoning LLM** | Ollama | `llama3:8b` (via `ROUTER_REASONING_MODEL`) | High-capacity reasoning engine for code & math |
+| **Production Gateway** | slowapi + tenacity | Rate limiting & exponential retry middleware | Resilient API proxying and request tracing |
 | **Containerization** | Docker, Docker Compose | Multi-container setup | Isolated environment build and execution |
 
 ---
@@ -241,13 +273,18 @@ apexguard/
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/health` | Live system diagnostic check (Qdrant status, embedding status, Ollama status, Phase 3 online) |
+| `GET` | `/health` | Live system diagnostic check (Qdrant, embedding, Ollama, Phase 5 online) |
 | `POST` | `/api/v1/ingest/file` | Ingest PDF, DOCX, or TXT file into Qdrant vector store |
 | `POST` | `/api/v1/ingest/text` | Ingest raw text string directly into Qdrant vector store |
 | `POST` | `/api/v1/query` | Execute RAG pipeline (Retrieval + RRF Fusion + FlashRank + LLM generation) |
+| `POST` | `/api/v1/query/hybrid` | Execute advanced Hybrid Search with tunable weights and candidate pools |
 | `GET` | `/api/v1/documents` | Inspect and filter stored vector chunks in Qdrant |
 | `POST` | `/api/v1/eval/run` | Execute Phase 3 automated empirical evaluation harness (`dense` vs `hybrid` vs `hybrid_reranked`) |
-| `POST` | `/api/v1/gateway/chat/completions` | Execute OpenAI-compatible LLM Gateway with Server-Sent Events (SSE) streaming and rate limits |
+| `POST` | `/api/v1/gateway/chat/completions` | OpenAI-compatible LLM Gateway (with Bearer auth, rate limiting, and `model="auto"` dynamic routing) |
+| `POST` | `/api/v1/router/classify` | Sub-millisecond query intent & complexity classification endpoint (< 0.5ms) |
+| `POST` | `/api/v1/router/query` | End-to-end intelligent routing execution (routes to fast LLM, Hybrid RAG, or reasoning LLM) |
+| `GET` | `/api/v1/router/routes` | Catalog of configured routes, target models, latency tiers, and cost profiles |
+
 
 
 ---
